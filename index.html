@@ -1,0 +1,2235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Tindahan ERP</title>
+<meta name="theme-color" content="#22303F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tindahan">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
+<style>
+  :root{
+    --paper:#FAF3E4;
+    --ink:#22303F;
+    --ink-soft:#5B6B7A;
+    --red:#D6432D;
+    --yellow:#F0A93C;
+    --green:#2F7A5C;
+    --card:#FFFFFF;
+    --line:#E4D9C4;
+    --danger:#C63B3B;
+    --radius:14px;
+    --shadow: 0 2px 10px rgba(34,48,63,0.08);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:78px;
+  }
+  .display{
+    font-weight:800;
+    letter-spacing:-0.01em;
+  }
+  .mono{
+    font-variant-numeric:tabular-nums;
+    font-feature-settings:"tnum";
+  }
+  a{color:inherit;}
+
+  /* ===== Header ===== */
+  header.topbar{
+    position:sticky;top:0;z-index:20;
+    background:var(--ink);
+    color:var(--paper);
+    padding:14px 16px 12px;
+    display:flex;align-items:center;justify-content:space-between;
+    box-shadow:0 2px 8px rgba(0,0,0,0.15);
+  }
+  header.topbar .store-name{
+    font-size:19px;
+    display:flex;align-items:center;gap:8px;
+  }
+  header.topbar .store-name input{
+    background:transparent;border:none;color:var(--paper);
+    font-family:inherit;font-weight:800;font-size:19px;
+    letter-spacing:-0.01em;width:auto;max-width:180px;
+    border-bottom:1px dashed rgba(250,243,228,0.35);
+    padding:2px 0;
+  }
+  header.topbar .date{
+    font-size:11.5px;opacity:0.65;margin-top:2px;
+  }
+  header.topbar .badge{
+    background:var(--yellow);color:var(--ink);
+    font-weight:800;font-size:12px;
+    padding:6px 10px;border-radius:999px;
+  }
+
+  main{
+    max-width:920px;margin:0 auto;padding:14px 12px 24px;
+  }
+
+  /* ===== Cards / ledger look ===== */
+  .card{
+    background:var(--card);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    border:1px solid var(--line);
+    padding:16px;
+    margin-bottom:14px;
+  }
+  .card h2{
+    margin:0 0 12px;font-size:15px;text-transform:uppercase;
+    letter-spacing:0.06em;color:var(--ink-soft);font-weight:800;
+  }
+  .stat-row{display:flex;gap:10px;flex-wrap:wrap;}
+  .stat{
+    flex:1 1 130px;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;padding:12px 14px;position:relative;overflow:hidden;
+  }
+  .stat::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent,var(--green));
+  }
+  .stat .label{font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.05em;font-weight:700;}
+  .stat .value{font-size:22px;font-weight:800;margin-top:4px;}
+
+  .ledger-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:10px 0;border-bottom:1px dashed var(--line);gap:10px;
+  }
+  .ledger-row:last-child{border-bottom:none;}
+  .pill{
+    display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;
+  }
+  .pill.low{background:#FBE1DC;color:var(--red);}
+  .pill.ok{background:#E1EFE7;color:var(--green);}
+
+  /* ===== Buttons / inputs ===== */
+  button{
+    font-family:inherit;cursor:pointer;border:none;border-radius:10px;
+    font-weight:700;padding:10px 14px;font-size:14px;
+  }
+  .btn-primary{background:var(--green);color:#fff;}
+  .btn-primary:active{opacity:0.85;}
+  .btn-secondary{background:var(--paper);color:var(--ink);border:1px solid var(--line);}
+  .btn-danger{background:#fff;color:var(--danger);border:1px solid #f0c9c9;}
+  .btn-yellow{background:var(--yellow);color:var(--ink);}
+  .btn-block{width:100%;}
+  .icon-btn{
+    background:transparent;border:none;padding:6px;border-radius:8px;color:var(--ink-soft);
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .icon-btn:active{background:var(--paper);}
+  input, select{
+    font-family:inherit;font-size:14.5px;padding:10px 11px;border-radius:10px;
+    border:1px solid var(--line);background:#fff;color:var(--ink);width:100%;
+  }
+  input:focus, select:focus, button:focus-visible{
+    outline:2px solid var(--green);outline-offset:1px;
+  }
+  label{font-size:12px;font-weight:700;color:var(--ink-soft);display:block;margin-bottom:4px;}
+  .field{margin-bottom:10px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+
+  .empty{
+    text-align:center;color:var(--ink-soft);padding:26px 10px;font-size:13.5px;
+  }
+  .empty .big{font-size:30px;display:block;margin-bottom:6px;}
+
+  /* ===== Nav ===== */
+  nav.tabbar{
+    position:fixed;bottom:0;left:0;right:0;z-index:30;
+    background:var(--ink);
+    display:flex;justify-content:space-around;
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    box-shadow:0 -2px 10px rgba(0,0,0,0.2);
+  }
+  nav.tabbar button{
+    background:transparent;color:rgba(250,243,228,0.55);
+    display:flex;flex-direction:column;align-items:center;gap:2px;
+    font-size:10.5px;font-weight:700;padding:6px 8px;border-radius:10px;flex:1;
+  }
+  nav.tabbar button.active{color:var(--paper);background:rgba(250,243,228,0.08);}
+  nav.tabbar svg{width:20px;height:20px;}
+
+  /* ===== Inventory list ===== */
+  .item-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);}
+  .item-row:last-child{border-bottom:none;}
+  .item-main{flex:1;min-width:0;}
+  .item-main .name{font-weight:700;font-size:14.5px;}
+  .item-main .meta{font-size:12px;color:var(--ink-soft);margin-top:2px;}
+  .qty-adjust{display:flex;align-items:center;gap:6px;}
+  .qty-adjust button{width:28px;height:28px;padding:0;border-radius:8px;background:var(--paper);color:var(--ink);font-size:16px;line-height:1;}
+  .qty-adjust .qty-num{min-width:26px;text-align:center;font-weight:800;}
+
+  /* ===== POS ===== */
+  .pos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;}
+  .pos-item{
+    background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;
+    text-align:left;cursor:pointer;
+  }
+  .pos-item:active{background:var(--paper);}
+  .pos-item .n{font-weight:700;font-size:13px;display:block;}
+  .pos-item .p{font-size:13px;color:var(--green);font-weight:800;margin-top:4px;}
+  .pos-item .s{font-size:11px;color:var(--ink-soft);margin-top:2px;}
+  .cart-strip{
+    position:sticky;bottom:70px;background:var(--yellow);border-radius:12px;
+    padding:10px 12px;display:flex;justify-content:space-between;align-items:center;
+    box-shadow:var(--shadow);margin-top:12px;
+  }
+  .cart-line{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line);}
+
+  /* ===== Receipt roll ===== */
+  .receipt-drop{
+    background:#fff;border:2px dashed var(--line);border-radius:12px;padding:24px 14px;
+    text-align:center;color:var(--ink-soft);
+  }
+  .receipt-drop.dragging{border-color:var(--green);background:#F1F8F4;}
+  .torn{
+    height:10px;
+    background:
+      linear-gradient(-45deg, var(--paper) 6px, transparent 0) 0 4px,
+      linear-gradient(45deg, var(--paper) 6px, transparent 0) 0 4px;
+    background-size:12px 12px; background-repeat:repeat-x; background-color:#fff;
+  }
+  .receipt-card{background:#fff;border:1px solid var(--line);border-radius:0 0 12px 12px;padding:14px;margin-bottom:2px;}
+  .parse-row{display:grid;grid-template-columns:auto 1fr 70px 90px;gap:8px;align-items:center;padding:6px 0;}
+  .parse-row input[type="checkbox"]{width:auto;}
+  .progress-wrap{background:var(--line);border-radius:999px;height:8px;overflow:hidden;margin:10px 0;}
+  .progress-bar{background:var(--green);height:100%;width:0%;transition:width .2s;}
+  .thumb{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex-shrink:0;}
+
+  .toast{
+    position:fixed;left:50%;bottom:86px;transform:translateX(-50%);
+    background:var(--ink);color:var(--paper);padding:10px 18px;border-radius:999px;
+    font-size:13px;font-weight:700;box-shadow:var(--shadow);z-index:60;
+    opacity:0;pointer-events:none;transition:opacity .25s, bottom .25s;
+  }
+  .toast.show{opacity:1;bottom:96px;}
+
+  .modal-bg{
+    position:fixed;inset:0;background:rgba(34,48,63,0.5);z-index:50;
+    display:flex;align-items:flex-end;justify-content:center;
+  }
+  .modal{
+    background:var(--paper);border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:480px;
+    max-height:88vh;overflow-y:auto;
+  }
+  .modal .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .modal h3{margin:0;font-size:16px;}
+
+  .segmented{display:flex;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px;}
+  .segmented button{flex:1;background:transparent;color:var(--ink-soft);padding:8px 4px;font-size:12.5px;}
+  .segmented button.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,0.12);}
+
+  .bar-row{margin-bottom:10px;}
+  .bar-row .bar-label{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;}
+  .bar-track{background:var(--paper);border-radius:6px;height:10px;overflow:hidden;}
+  .bar-fill{background:var(--green);height:100%;border-radius:6px;}
+
+  @media(min-width:860px){
+    body{padding-bottom:0;padding-left:96px;}
+    nav.tabbar{
+      top:0;bottom:0;right:auto;left:0;width:88px;flex-direction:column;justify-content:flex-start;
+      padding:18px 8px;gap:6px;
+    }
+    nav.tabbar button{flex:none;}
+    main{padding-top:20px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <div class="store-name display">🏪 <input id="storeNameInput" value="Tindahan"></div>
+    <div class="date" id="dateLabel"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <div class="badge mono" id="headerBadge">₱0</div>
+    <button id="switchUserBtn" class="icon-btn" style="display:none;color:var(--paper);" title="Switch user">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main"></main>
+
+<nav class="tabbar" id="tabbar"></nav>
+
+<div class="toast" id="toast"></div>
+<div id="modalRoot"></div>
+
+<!-- Firebase bootstrap: sets up window.fsGet/fsSet, used by the storage layer below.
+     Must run BEFORE the main app script, and both are type="module" so the browser
+     guarantees that order regardless of load timing. -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js';
+  import { getFirestore, doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCUOCbyhmN-zB0NX3zEIC0joBzNTXy4IL4",
+    authDomain: "ministore-database.firebaseapp.com",
+    projectId: "ministore-database",
+    storageBucket: "ministore-database.firebasestorage.app",
+    messagingSenderId: "985249938829",
+    appId: "1:985249938829:web:2a188e7fd6ad5da47911c4",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const COLLECTION = 'tindahan-store';
+
+  // Same shape as the rest of the app already expects: get/set a JSON string by key.
+  window.fsGet = async function(key){
+    const snap = await getDoc(doc(db, COLLECTION, key));
+    if(!snap.exists()) return undefined;
+    return snap.data().json;
+  };
+  window.fsSet = async function(key, jsonString){
+    await setDoc(doc(db, COLLECTION, key), { json: jsonString, updatedAt: Date.now() });
+  };
+</script>
+
+<script type="module">
+/* =========================================================
+   TINDAHAN ERP — single-file store management app
+   Data model (Firestore collection "tindahan-store", one doc per key):
+     'store-config'   -> { name }
+     'inventory'       -> [ {id,name,category,unit,cost,price,qty,reorder} ]
+     'sales'           -> [ {id,itemId,name,qty,price,cost,total,ts} ]
+     'receipts-index'  -> [ {id,date,supplier,total,itemCount} ]
+     'receipt:<id>'    -> { id,date,supplier,image,rawText,items,total }
+   ========================================================= */
+
+const ICONS = {
+  dashboard:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  inventory:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>',
+  sell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3h2l2.4 12.2a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L21 7H6"/></svg>',
+  receipts:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h12v18l-3-2-3 2-3-2-3 2V2z"/><path d="M9 8h6M9 12h6"/></svg>',
+  reports:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>',
+  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
+  camera:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="14" r="4"/></svg>',
+  close:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  wifi:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5a16 16 0 0 1 20 0"/><path d="M5.5 12.5a11 11 0 0 1 13 0"/><path d="M9 16.5a6 6 0 0 1 6 0"/><circle cx="12" cy="20" r="1.2" fill="currentColor" stroke="none"/></svg>',
+  log:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+};
+
+const TABS = [
+  {id:'dashboard', label:'Home', icon:'dashboard'},
+  {id:'inventory', label:'Stocks', icon:'inventory'},
+  {id:'sell', label:'Bentahan', icon:'sell'},
+  {id:'vouchers', label:'Vouchers', icon:'wifi'},
+  {id:'log', label:'Log', icon:'log'},
+  {id:'receipts', label:'Resibo', icon:'receipts'},
+  {id:'reports', label:'Reports', icon:'reports'},
+];
+
+// Best-effort draft transcribed from the user's handwritten stock sheets (Aug 13 counts).
+// Cost left blank (0) since the sheets only show retail price — user should fill in actual supplier cost per item.
+// Format per line: Name, Retail Price, Qty on hand
+const DRAFT_IMPORT_TEXT = `Summit, 25, 104
+Mountain Dew, 30, 48
+Coke Promo, 25, 117
+C2, 35, 8
+Gatorade, 55, 42
+Century Tuna, 40, 1
+Ball Pen, 10, 269
+Paper Cups, 5, 16
+Envelope, 5, 40
+Plastic Bag, 3, 1070
+Moby, 50, 7
+Royal / Pepsi Can, 50, 1
+Sundae, 30, 24
+Double Choco, 30, 37
+Chocolate Crispy, 30, 34
+Corn Crispy, 25, 28
+Coffee Crispy, 25, 58
+Strawberry Crispy, 25, 32
+Mango Corn, 25, 18
+Chocomelt, 25, 22
+Chocolate Stick, 15, 95
+Banana Stick, 15, 47
+Watermelon Stick, 15, 55
+Fruit Pop, 15, 30
+Cugo, 20, 240
+Boy Bawang, 30, 4
+Chichirya Mix, 30, 4
+Hansel, 10, 25
+Presto Cream Choco, 10, 41
+Presto Butter, 10, 22
+Crossini, 15, 28
+Fudgee Bar, 15, 55
+Choco Mucho, 15, 0
+Cloud 9, 15, 0
+SunFlakes, 15, 63
+San Mig, 15, 56
+Nescafe 3in1, 15, 230
+Kopiko Black, 15, 246
+Kopiko Blanca, 15, 135
+Kopiko Supremo, 15, 135
+Milo, 15, 37
+Nescafe Stick, 10, 138
+Maxx Blue, 2, 0
+Maxx Red, 2, 50
+Alcohol, 30, 2
+Toothbrush, 30, 91
+Green Cross, 20, 10
+Shampoo, 10, 48
+Toothpaste, 10, 70
+Gatsby, 10, 4
+Nivea, 10, 70
+Champion Detergent, 15, 16
+Chicharon Seafood, 35, 8
+Chicharon Spicy Beef, 35, 39
+Chicharon Bulalo, 35, 48
+Chicharon Beef, 35, 4
+Soupermeal, 55, 0
+Slippers, 80, 93`;
+
+const DEFAULT_CATEGORIES = ['Coffee','Drinks','Ice Cream','Snacks','Toiletries','Others'];
+
+// A code is 'used' once sold. Otherwise it's 'expired' if it has an expiry date
+// that has passed, computed live (nothing is silently rewritten in storage).
+function voucherCodeStatus(c){
+  if(c.status==='used') return 'used';
+  if(c.expiryDate && c.expiryDate < todayStr()) return 'expired';
+  return 'unused';
+}
+function voucherStockCount(typeId){
+  return state.voucherCodes.filter(c=>c.typeId===typeId && voucherCodeStatus(c)==='unused').length;
+}
+function gcashSuggestedFee(amount){
+  amount = Number(amount)||0;
+  if(amount<=0) return 0;
+  return Math.ceil(amount/500)*10;
+}
+
+function parseBulkLines(raw){
+  return raw.split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{
+    const parts = line.split(',').map(p=>p.trim());
+    if(parts.length<3) return null;
+    const name = parts[0];
+    const price = parseFloat(parts[1]);
+    const qty = parseInt(parts[2]);
+    const costRaw = parts[3]!==undefined ? parseFloat(parts[3]) : 0;
+    if(!name || isNaN(price) || isNaN(qty)) return null;
+    return {name, price, qty, cost: isNaN(costRaw)?0:costRaw};
+  }).filter(Boolean);
+}
+function parseBulkImportText(raw){
+  // fresh item objects, for seeding an empty store
+  return parseBulkLines(raw).map(r=>({id:uid(), name:r.name, category:'', unit:'pc', cost:r.cost, price:r.price, qty:r.qty, reorder:5, remarks:''}));
+}
+function mergeBulkIntoInventory(raw, inventory){
+  const rows = parseBulkLines(raw);
+  let added=0, updated=0;
+  for(const r of rows){
+    const existing = inventory.find(i=>i.name.toLowerCase()===r.name.toLowerCase());
+    if(existing){
+      existing.price = r.price; existing.qty = r.qty;
+      if(r.cost>0) existing.cost = r.cost;
+      updated++;
+    } else {
+      inventory.push({id:uid(), name:r.name, category:'', unit:'pc', cost:r.cost, price:r.price, qty:r.qty, reorder:5, remarks:''});
+      added++;
+    }
+  }
+  const totalLines = raw.split('\n').map(l=>l.trim()).filter(Boolean).length;
+  return {added, updated, skipped: totalLines - rows.length};
+}
+
+let state = {
+  config: {name:'Tindahan', ownerPin:'', gcashFloatStart:0},
+  inventory: [],
+  sales: [],
+  receiptsIndex: [],
+  categories: [],
+  expenses: [],
+  utang: [],       // [{id,name,contact,balance,history:[{id,type,amount,remarks,date,addedBy}]}]
+  gcash: [],        // [{id,date,type:'cash-in'|'cash-out',amount,fee,remarks,addedBy}]
+  vouchers: [],     // [{id,name,cost,price}]  -- voucher TYPES only; stock comes from voucherCodes
+  voucherCodes: [], // [{id,typeId,code,status:'unused'|'used',expiryDate,soldTs}]
+  cart: [],
+  tab: 'dashboard',
+  _invSelected: new Set(),
+  loaded: false,
+  showInstallHint: false,
+  role: null,        // 'owner' | 'employee' | null (not logged in)
+  gateStep: 'pick',  // 'pick' | 'ownerPin' | 'setupPin'
+  gateError: '',
+  lastSync: null,
+};
+
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+function peso(n){
+  n = Number(n)||0;
+  return '₱' + n.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._h);
+  showToast._h = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+/* ---------------- Storage layer ----------------
+   Backed by Firestore (window.fsGet/fsSet, set up by the Firebase bootstrap
+   <script type="module"> above this one). All data is effectively shared —
+   there's no Firebase Auth wired in, so per-device scoping doesn't really
+   exist; the install-hint dismiss flag just lives in the same store under
+   a "device-" prefix as a low-stakes tradeoff. Access is separated in-app
+   by role (PIN-gated), not by storage scope — see the note on the role screen. */
+async function storageGet(key, fallback){
+  try{
+    const json = await window.fsGet(key);
+    if(json === undefined || json === null) return fallback;
+    return JSON.parse(json);
+  }catch(e){
+    console.error('storageGet failed', key, e);
+    return fallback;
+  }
+}
+async function storageSet(key, value){
+  try{
+    await window.fsSet(key, JSON.stringify(value));
+    return true;
+  }catch(e){
+    console.error('storage set failed', key, e);
+    showToast('⚠️ Could not save — try again');
+    return false;
+  }
+}
+async function deviceGet(key, fallback){ return storageGet('device-'+key, fallback); }
+async function deviceSet(key, value){ return storageSet('device-'+key, value); }
+
+async function loadAll(){
+  const [config, inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes] = await Promise.all([
+    storageGet('store-config', {name:'Tindahan', ownerPin:'', gcashFloatStart:0}),
+    storageGet('inventory', []),
+    storageGet('sales', []),
+    storageGet('receipts-index', []),
+    storageGet('categories', null),
+    storageGet('expenses', []),
+    storageGet('utang', []),
+    storageGet('gcash', []),
+    storageGet('vouchers', []),
+    storageGet('voucher-codes', []),
+  ]);
+  state.config = config || {name:'Tindahan', ownerPin:'', gcashFloatStart:0};
+  state.inventory = inventory;
+  state.sales = sales;
+  state.receiptsIndex = receiptsIndex;
+  state.expenses = expenses;
+  state.utang = utang;
+  state.gcash = gcash;
+  state.vouchers = vouchers;
+  state.voucherCodes = voucherCodes;
+  if(categories && categories.length){
+    state.categories = categories;
+  } else {
+    state.categories = DEFAULT_CATEGORIES.slice();
+    await storageSet('categories', state.categories);
+  }
+  state.loaded = true;
+  state.lastSync = new Date();
+
+  let isStandalone = false;
+  try{
+    isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  }catch(e){ isStandalone = false; }
+  const dismissed = await deviceGet('install-hint-dismissed', false);
+  state.showInstallHint = !isStandalone && !dismissed;
+}
+
+// Pulls fresh shared data in the background so a remote owner (or a second device)
+// sees near-live updates without a manual reload. Skips quietly while a modal is
+// open or the person is mid-typing, so it never yanks away unsaved input.
+async function backgroundSync(){
+  if(!state.role) return;
+  const modalOpen = document.getElementById('modalRoot').innerHTML.trim().length>0;
+  const typing = document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
+  if(modalOpen || typing) return;
+  try{
+    const [inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes, config] = await Promise.all([
+      storageGet('inventory', state.inventory),
+      storageGet('sales', state.sales),
+      storageGet('receipts-index', state.receiptsIndex),
+      storageGet('categories', state.categories),
+      storageGet('expenses', state.expenses),
+      storageGet('utang', state.utang),
+      storageGet('gcash', state.gcash),
+      storageGet('vouchers', state.vouchers),
+      storageGet('voucher-codes', state.voucherCodes),
+      storageGet('store-config', state.config),
+    ]);
+    state.inventory=inventory; state.sales=sales; state.receiptsIndex=receiptsIndex;
+    state.categories=categories; state.expenses=expenses; state.utang=utang;
+    state.gcash=gcash; state.vouchers=vouchers; state.voucherCodes=voucherCodes; state.config=config;
+    state.lastSync = new Date();
+    render();
+  }catch(e){ /* stay silent — next tick will retry */ }
+}
+
+/* ---------------- Rendering shell ---------------- */
+function visibleTabs(){
+  if(state.role==='owner') return TABS;
+  return TABS.filter(t=> ['inventory','sell','vouchers','log'].includes(t.id));
+}
+function renderNav(){
+  const nav = document.getElementById('tabbar');
+  nav.innerHTML = visibleTabs().map(t=>`
+    <button data-tab="${t.id}" class="${state.tab===t.id?'active':''}">
+      ${ICONS[t.icon]}<span>${t.label}</span>
+    </button>`).join('');
+  nav.querySelectorAll('button').forEach(b=>{
+    b.addEventListener('click', ()=>{ state.tab = b.dataset.tab; render(); });
+  });
+}
+
+function updateHeader(){
+  document.getElementById('dateLabel').textContent = state.role
+    ? (state.role==='owner' ? 'Owner' : 'Employee') + ' · ' + new Date().toLocaleDateString('en-PH',{weekday:'short', month:'short', day:'numeric'})
+    : new Date().toLocaleDateString('en-PH',{weekday:'long', month:'short', day:'numeric', year:'numeric'});
+  const badge = document.getElementById('headerBadge');
+  if(state.role==='owner'){
+    const today = todayStr();
+    const todaySales = state.sales.filter(s=>s.ts.slice(0,10)===today);
+    const total = todaySales.reduce((a,s)=>a+s.total,0);
+    badge.style.display='inline-block';
+    badge.textContent = 'Today: ' + peso(total);
+  } else {
+    badge.style.display='none';
+  }
+  const nameInput = document.getElementById('storeNameInput');
+  if(document.activeElement !== nameInput) nameInput.value = state.config.name || 'Tindahan';
+  nameInput.disabled = state.role!=='owner';
+  document.getElementById('switchUserBtn').style.display = state.role ? 'inline-flex' : 'none';
+}
+
+function render(){
+  if(!state.role){
+    document.getElementById('tabbar').innerHTML = '';
+    updateHeader();
+    document.getElementById('main').innerHTML = viewRoleGate();
+    bindGateEvents();
+    return;
+  }
+  // keep employees off owner-only tabs even if state.tab was left there
+  const allowed = visibleTabs().map(t=>t.id);
+  if(!allowed.includes(state.tab)) state.tab = state.role==='owner' ? 'dashboard' : 'sell';
+  renderNav();
+  updateHeader();
+  const main = document.getElementById('main');
+  if(state.tab==='dashboard') main.innerHTML = viewDashboard();
+  if(state.tab==='inventory') main.innerHTML = viewInventory();
+  if(state.tab==='sell') main.innerHTML = viewSell();
+  if(state.tab==='vouchers') main.innerHTML = viewVouchers();
+  if(state.tab==='log') main.innerHTML = viewLog();
+  if(state.tab==='receipts') main.innerHTML = viewReceipts();
+  if(state.tab==='reports') main.innerHTML = viewReports();
+  bindTabEvents();
+}
+
+/* ---------------- Role gate (login) ---------------- */
+function viewRoleGate(){
+  const hasPin = !!(state.config.ownerPin);
+  if(state.gateStep==='setupPin'){
+    return `
+    <div class="card" style="max-width:380px;margin:30px auto;">
+      <h2>Set an Owner PIN</h2>
+      <p style="font-size:12.5px;color:var(--ink-soft);">This keeps full sales, cost, and profit numbers visible only to you. Choose a 4-digit PIN — you'll enter it each time you open Owner mode.</p>
+      <form id="setupPinForm">
+        <div class="field"><input name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="4-digit PIN" required></div>
+        <div class="field"><input name="pin2" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Confirm PIN" required></div>
+        ${state.gateError? `<div style="color:var(--red);font-size:12.5px;margin-bottom:8px;">${esc(state.gateError)}</div>`:''}
+        <button type="submit" class="btn-primary btn-block">Save PIN & Continue</button>
+      </form>
+      <button id="gateBack" class="btn-secondary btn-block" style="margin-top:8px;">Back</button>
+    </div>`;
+  }
+  if(state.gateStep==='ownerPin'){
+    return `
+    <div class="card" style="max-width:380px;margin:30px auto;">
+      <h2>Owner PIN</h2>
+      <form id="ownerPinForm">
+        <div class="field"><input name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Enter PIN" autofocus required></div>
+        ${state.gateError? `<div style="color:var(--red);font-size:12.5px;margin-bottom:8px;">${esc(state.gateError)}</div>`:''}
+        <button type="submit" class="btn-primary btn-block">Enter</button>
+      </form>
+      <button id="gateBack" class="btn-secondary btn-block" style="margin-top:8px;">Back</button>
+    </div>`;
+  }
+  return `
+  <div class="card" style="max-width:420px;margin:30px auto;text-align:center;">
+    <div style="font-size:40px;">🏪</div>
+    <h2 style="margin-top:6px;">Who's logging in?</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:18px;">Owner sees sales, cost, and profit. Employee can log sales and manage stock, without seeing money totals.</p>
+    <button id="pickOwner" class="btn-primary btn-block" style="margin-bottom:10px;padding:14px;">🧑‍💼 Owner${hasPin?'':' (set up PIN)'}</button>
+    <button id="pickEmployee" class="btn-yellow btn-block" style="padding:14px;">🧑‍🔧 Employee</button>
+    <p style="font-size:11px;color:var(--ink-soft);margin-top:14px;">Note: this PIN keeps things tidy day-to-day, but isn't strong security — anyone determined with browser access could still reach the raw data. Don't use it to hide anything sensitive from someone who has physical access to the device.</p>
+  </div>`;
+}
+
+function bindGateEvents(){
+  document.getElementById('pickEmployee')?.addEventListener('click', ()=>{
+    state.role = 'employee';
+    state.tab = 'sell';
+    render();
+  });
+  document.getElementById('pickOwner')?.addEventListener('click', ()=>{
+    state.gateStep = state.config.ownerPin ? 'ownerPin' : 'setupPin';
+    state.gateError = '';
+    render();
+  });
+  document.getElementById('gateBack')?.addEventListener('click', ()=>{
+    state.gateStep = 'pick';
+    state.gateError = '';
+    render();
+  });
+  document.getElementById('ownerPinForm')?.addEventListener('submit', e=>{
+    e.preventDefault();
+    const pin = new FormData(e.target).get('pin').trim();
+    if(pin === state.config.ownerPin){
+      state.role = 'owner';
+      state.tab = 'dashboard';
+      state.gateStep = 'pick';
+      state.gateError = '';
+      render();
+    } else {
+      state.gateError = 'Wrong PIN — try again.';
+      render();
+    }
+  });
+  document.getElementById('setupPinForm')?.addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const pin = f.get('pin').trim(), pin2 = f.get('pin2').trim();
+    if(!/^\d{4}$/.test(pin)){ state.gateError='PIN must be exactly 4 digits.'; render(); return; }
+    if(pin !== pin2){ state.gateError='PINs do not match.'; render(); return; }
+    state.config.ownerPin = pin;
+    await storageSet('store-config', state.config);
+    state.role = 'owner';
+    state.tab = 'dashboard';
+    state.gateStep = 'pick';
+    state.gateError = '';
+    render();
+  });
+}
+
+/* ---------------- Dashboard ---------------- */
+function viewDashboard(){
+  const today = todayStr();
+  const todaySales = state.sales.filter(s=>s.ts.slice(0,10)===today);
+  const revenue = todaySales.reduce((a,s)=>a+s.total,0);
+  const cogsToday = todaySales.reduce((a,s)=>a+s.cost*s.qty,0);
+  const profit = revenue - cogsToday;
+  const lowStock = state.inventory.filter(i=>i.reorder>0 && i.qty<=i.reorder);
+  const invValue = state.inventory.reduce((a,i)=>a+i.cost*i.qty,0);
+  const recent = [...state.sales].sort((a,b)=>b.ts.localeCompare(a.ts)).slice(0,6);
+
+  const gcashFloat = (state.config.gcashFloatStart||0)
+    + state.gcash.filter(g=>g.type==='cash-out').reduce((a,g)=>a+g.amount,0)
+    - state.gcash.filter(g=>g.type==='cash-in').reduce((a,g)=>a+g.amount,0);
+  const gcashFeesToday = state.gcash.filter(g=>g.date.slice(0,10)===today).reduce((a,g)=>a+(g.fee||0),0);
+  const gcashFeesAll = state.gcash.reduce((a,g)=>a+(g.fee||0),0);
+
+  const utangTotal = state.utang.reduce((a,c)=>a+c.balance,0);
+  const utangOverLimit = state.utang.filter(c=>c.balance>0).length;
+
+  const vUnused = state.voucherCodes.filter(c=>voucherCodeStatus(c)==='unused').length;
+  const vUsed = state.voucherCodes.filter(c=>voucherCodeStatus(c)==='used').length;
+  const vExpired = state.voucherCodes.filter(c=>voucherCodeStatus(c)==='expired').length;
+  const vSoldToday = todaySales.filter(s=>s.isVoucher).reduce((a,s)=>a+s.qty,0);
+  const vProfitToday = todaySales.filter(s=>s.isVoucher).reduce((a,s)=>a+(s.price-s.cost)*s.qty,0);
+  const vProfitAll = state.sales.filter(s=>s.isVoucher).reduce((a,s)=>a+(s.price-s.cost)*s.qty,0);
+
+  const expensesToday = state.expenses.filter(e=>e.date.slice(0,10)===today).reduce((a,e)=>a+e.amount,0);
+  const netToday = profit + gcashFeesToday - expensesToday;
+
+  return `
+  ${state.showInstallHint ? `
+  <div class="card" id="installHintCard" style="border-color:var(--yellow);background:#FFFBF0;">
+    <h2 style="color:var(--ink)">📲 Install as an app</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">Put this on your home screen so it opens like a real app — full screen, no browser bar.</p>
+    <p style="font-size:12.5px;margin:2px 0;"><strong>iPhone:</strong> tap Share → Add to Home Screen.</p>
+    <p style="font-size:12.5px;margin:2px 0;"><strong>Android:</strong> tap ⋮ menu → Install app / Add to Home screen.</p>
+    <p style="font-size:12.5px;margin:2px 0 10px;"><strong>Laptop:</strong> click the install icon (⊕) in the address bar.</p>
+    <button id="dismissInstallHint" class="btn-secondary btn-block">Got it</button>
+  </div>` : ''}
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;">Ngayong Araw — Overall</h2>
+      <button id="syncNowBtn" class="icon-btn" title="Refresh now" style="color:var(--green);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg>
+      </button>
+    </div>
+    <div class="stat-row">
+      <div class="stat" style="--accent:var(--green)"><div class="label">Sales</div><div class="value mono">${peso(revenue)}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Item Profit</div><div class="value mono">${peso(profit)}</div></div>
+      <div class="stat" style="--accent:var(--red)"><div class="label">Transactions</div><div class="value mono">${todaySales.length}</div></div>
+    </div>
+    <div class="stat-row" style="margin-top:10px;">
+      <div class="stat" style="--accent:var(--green)"><div class="label">GCash fees today</div><div class="value mono">${peso(gcashFeesToday)}</div></div>
+      <div class="stat" style="--accent:var(--red)"><div class="label">Expenses today</div><div class="value mono">${peso(expensesToday)}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Net today</div><div class="value mono" style="color:${netToday<0?'var(--red)':'inherit'}">${peso(netToday)}</div></div>
+    </div>
+    <div style="font-size:11px;color:var(--ink-soft);margin-top:10px;">Synced ${state.lastSync ? state.lastSync.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'}) : '—'} · updates automatically every 30s</div>
+  </div>
+
+  <div class="card">
+    <h2>Store Snapshot</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="label">Items tracked</div><div class="value mono">${state.inventory.length}</div></div>
+      <div class="stat"><div class="label">Inventory value</div><div class="value mono">${peso(invValue)}</div></div>
+      <div class="stat"><div class="label">Low stock</div><div class="value mono" style="color:${lowStock.length?'var(--red)':'inherit'}">${lowStock.length}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>💳 GCash Float & Profit</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:var(--green)"><div class="label">Current float</div><div class="value mono" style="color:${gcashFloat<0?'var(--red)':'inherit'}">${peso(gcashFloat)}</div></div>
+      <div class="stat"><div class="label">Fees today</div><div class="value mono">${peso(gcashFeesToday)}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Fees all-time (profit)</div><div class="value mono">${peso(gcashFeesAll)}</div></div>
+    </div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">Manage cash-in / cash-out in the <strong>Log</strong> tab.</p>
+  </div>
+
+  <div class="card">
+    <h2>🤝 Utang (Customer Credit)</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:var(--red)"><div class="label">Total outstanding</div><div class="value mono">${peso(utangTotal)}</div></div>
+      <div class="stat"><div class="label">Customers owing</div><div class="value mono">${utangOverLimit}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📶 WiFi Vouchers & Profit</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:var(--green)"><div class="label">Sold today</div><div class="value mono">${vSoldToday}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Profit today</div><div class="value mono">${peso(vProfitToday)}</div></div>
+      <div class="stat"><div class="label">Profit all-time</div><div class="value mono">${peso(vProfitAll)}</div></div>
+    </div>
+    <div class="stat-row" style="margin-top:10px;">
+      <div class="stat" style="--accent:var(--green)"><div class="label">Unused codes</div><div class="value mono">${vUnused}</div></div>
+      <div class="stat" style="--accent:var(--ink-soft)"><div class="label">Used codes</div><div class="value mono">${vUsed}</div></div>
+      <div class="stat" style="--accent:var(--red)"><div class="label">Expired codes</div><div class="value mono">${vExpired}</div></div>
+    </div>
+  </div>
+
+  ${lowStock.length? `
+  <div class="card">
+    <h2>⚠️ Paubos na (Low Stock)</h2>
+    ${lowStock.map(i=>`
+      <div class="ledger-row">
+        <div><strong>${esc(i.name)}</strong><div class="meta" style="font-size:12px;color:var(--ink-soft)">${i.qty} ${esc(i.unit)} left · reorder at ${i.reorder}</div></div>
+        <span class="pill low">Restock</span>
+      </div>`).join('')}
+  </div>` : ''}
+
+  <div class="card">
+    <h2>Huling Benta (Recent Sales)</h2>
+    ${recent.length? recent.map(s=>`
+      <div class="ledger-row">
+        <div><strong>${esc(s.name)}</strong> <span class="meta" style="color:var(--ink-soft);font-size:12px">×${s.qty}</span>
+          <div class="meta" style="font-size:11.5px;color:var(--ink-soft)">${new Date(s.ts).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · ${esc(s.payment||'Cash')}</div>
+        </div>
+        <div class="mono" style="font-weight:800">${peso(s.total)}</div>
+      </div>`).join('') : `<div class="empty"><span class="big">🧾</span>Wala pang benta today.<br>Go to <strong>Bentahan</strong> to log a sale.</div>`}
+  </div>
+  `;
+}
+
+/* ---------------- Inventory ---------------- */
+function categoryOptionsHtml(selected){
+  return state.categories.map(c=>`<option value="${esc(c)}" ${c===selected?'selected':''}>${esc(c)}</option>`).join('');
+}
+function categoryChipsHtml(activeCat, groupAttr){
+  const cats = ['All', ...state.categories];
+  return `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:10px;">
+    ${cats.map(c=>`<button data-${groupAttr}="${esc(c)}" class="btn-secondary" style="white-space:nowrap;padding:7px 12px;font-size:12.5px;${(activeCat||'All')===c?'background:var(--ink);color:var(--paper);border-color:var(--ink);':''}">${esc(c)}</button>`).join('')}
+  </div>`;
+}
+
+function viewInventory(){
+  const q = (state._invSearch||'').toLowerCase();
+  const activeCat = state._invCategory || 'All';
+  const items = state.inventory
+    .filter(i=> activeCat==='All' || (i.category||'Others')===activeCat)
+    .filter(i=> !q || i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  const isOwner = state.role==='owner';
+
+  return `
+  <div class="card">
+    <h2>Add / Idagdag na Item</h2>
+    <form id="addItemForm">
+      <div class="field"><label>Item name</label><input required name="name" placeholder="e.g. Lucky Me Pancit Canton"></div>
+      <div class="grid2">
+        <div class="field"><label>Category</label>
+          <select name="category">${categoryOptionsHtml(state.categories[0])}</select>
+        </div>
+        <div class="field"><label>Unit</label><input name="unit" placeholder="pc / sachet / bottle" value="pc"></div>
+      </div>
+      <div class="grid3">
+        ${isOwner? `<div class="field"><label>Cost (₱)</label><input required name="cost" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>` : ''}
+        <div class="field"><label>Sell price (₱)</label><input required name="price" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+        <div class="field"><label>Starting qty</label><input required name="qty" type="number" inputmode="numeric" value="0"></div>
+      </div>
+      <div class="field"><label>Remarks</label><input name="remarks" placeholder="e.g. from Aling Nena, near expiry"></div>
+      <div class="field"><label>Reorder alert level (0 = off)</label><input name="reorder" type="number" inputmode="numeric" value="5"></div>
+      <button type="submit" class="btn-primary btn-block">${ICONS.plus} Add Item</button>
+    </form>
+  </div>
+
+  ${isOwner? `
+  <div class="card">
+    <h2>Categories</h2>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      ${state.categories.map(c=>`<span class="pill ok" style="display:flex;align-items:center;gap:6px;padding:5px 10px;">${esc(c)} <button data-delcat="${esc(c)}" style="background:none;border:none;color:var(--red);font-weight:800;cursor:pointer;padding:0;font-size:13px;">×</button></span>`).join('')}
+    </div>
+    <form id="addCategoryForm" style="display:flex;gap:8px;">
+      <input name="newCat" placeholder="New category, e.g. Beverages" style="flex:1;">
+      <button type="submit" class="btn-secondary">Add</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Bulk Import (paste from your ledger)</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">One item per line: <code>Name, Price, Qty</code> (optionally add <code>, Cost</code> at the end). Matching names update existing stock instead of duplicating. ${state._draftLoaded ? '' : 'This box is pre-filled with a draft read from your ledger photos — check it over, fix any misread numbers, then import.'}</p>
+    <textarea id="bulkImportText" rows="8" style="width:100%;font-family:ui-monospace,monospace;font-size:12.5px;border:1px solid var(--line);border-radius:10px;padding:10px;" placeholder="Coke, 25, 12">${esc(state._bulkText ?? DRAFT_IMPORT_TEXT)}</textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button id="bulkImportBtn" class="btn-primary" style="flex:1;">Import List</button>
+      <button id="bulkClearBtn" class="btn-secondary">Clear box</button>
+    </div>
+  </div>` : ''}
+
+  <div class="card">
+    <h2>Stock List (${state.inventory.length})</h2>
+    <div class="field"><input id="invSearch" placeholder="🔍 Search item or category" value="${esc(state._invSearch||'')}"></div>
+    ${categoryChipsHtml(activeCat,'invcat')}
+    ${isOwner && items.length ? `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;margin:0;">
+        <input type="checkbox" id="invSelectAll" style="width:auto;"> Select all shown (${items.length})
+      </label>
+    </div>
+    ${state._invSelected && state._invSelected.size>0 ? `
+    <div class="card" style="background:#FFFBF0;border-color:var(--yellow);margin-bottom:12px;padding:12px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px;">${state._invSelected.size} item(s) selected</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <select id="bulkCatAssign" style="flex:1;min-width:140px;">${categoryOptionsHtml()}</select>
+        <button id="bulkCatApplyBtn" class="btn-secondary" style="padding:8px 12px;">Set category</button>
+        <button id="bulkDeleteBtn" class="btn-danger" style="padding:8px 12px;">${ICONS.trash} Delete selected</button>
+      </div>
+    </div>` : ''}` : ''}
+    ${items.length? items.map(i=>`
+      <div class="item-row" data-id="${i.id}" style="flex-wrap:wrap;">
+        ${isOwner? `<input type="checkbox" class="invSelectItem" data-id="${i.id}" ${state._invSelected && state._invSelected.has(i.id)?'checked':''} style="width:auto;margin-right:2px;">` : ''}
+        <div class="item-main">
+          <div class="name">${esc(i.name)} <span style="font-size:10.5px;font-weight:600;color:var(--ink-soft);">· ${esc(i.category||'Others')}</span></div>
+          ${isOwner ? `
+          <div class="meta" style="display:flex;gap:10px;align-items:center;margin-top:4px;">
+            <span style="display:flex;align-items:center;gap:4px;">cost ₱<input type="number" step="0.01" class="quickCost" data-id="${i.id}" value="${i.cost}" style="width:64px;padding:4px 6px;font-size:12px;"></span>
+            <span style="display:flex;align-items:center;gap:4px;">sell ₱<input type="number" step="0.01" class="quickPrice" data-id="${i.id}" value="${i.price}" style="width:64px;padding:4px 6px;font-size:12px;"></span>
+            ${i.reorder>0 && i.qty<=i.reorder ? '<span class="pill low">low</span>' : ''}
+          </div>` : `
+          <div class="meta">sell ${peso(i.price)} ${i.reorder>0 && i.qty<=i.reorder ? '<span class="pill low">low</span>' : ''}</div>`}
+          ${i.remarks? `<div class="meta" style="font-style:italic;">📝 ${esc(i.remarks)}</div>` : ''}
+        </div>
+        <div class="qty-adjust">
+          <button data-act="dec">−</button>
+          <span class="qty-num mono">${i.qty}</span>
+          <button data-act="inc">+</button>
+        </div>
+        <button class="icon-btn" data-act="edit">${ICONS.edit}</button>
+        <button class="icon-btn" data-act="del" style="color:var(--red)">${ICONS.trash}</button>
+      </div>
+    `).join('') : `<div class="empty"><span class="big">📦</span>No items yet. Add your first stock above${isOwner? ', or use <strong>Resibo</strong> to scan a supplier receipt.' : '.'}</div>`}
+  </div>
+  `;
+}
+
+/* ---------------- Sell / POS ---------------- */
+function viewSell(){
+  const q = (state._sellSearch||'').toLowerCase();
+  const activeCat = state._sellCategory || 'All';
+  const items = state.inventory
+    .filter(i=> activeCat==='All' || (i.category||'Others')===activeCat)
+    .filter(i=> !q || i.name.toLowerCase().includes(q))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  const cartTotal = state.cart.reduce((a,c)=>a+c.price*c.qty,0);
+  const pay = state.cartPayment || (state.cartPayment = {method:'cash', tendered:'', utangCustomerId:''});
+  const tendered = parseFloat(pay.tendered)||0;
+  const change = tendered - cartTotal;
+
+  return `
+  <div class="card">
+    <h2>Bentahan (Sell)</h2>
+    <div class="field"><input id="sellSearch" placeholder="🔍 Find item to sell" value="${esc(state._sellSearch||'')}"></div>
+    ${categoryChipsHtml(activeCat,'sellcat')}
+    ${items.length? `<div class="pos-grid">
+      ${items.map(i=>`
+        <button class="pos-item" data-id="${i.id}" ${i.qty<=0?'disabled style="opacity:.4"':''}>
+          <span class="n">${esc(i.name)}</span>
+          <span class="p mono">${peso(i.price)}</span>
+          <span class="s">${i.qty} ${esc(i.unit)} left</span>
+        </button>`).join('')}
+    </div>` : `<div class="empty"><span class="big">🛒</span>No stock to sell yet. Add items in <strong>Stocks</strong> first.</div>`}
+  </div>
+
+  ${state.cart.length? `
+  <div class="card">
+    <h2>Cart</h2>
+    ${state.cart.map(c=>`
+      <div class="cart-line" data-id="${c.itemId}">
+        <div>
+          <strong>${esc(c.name)}</strong>
+          <div class="meta" style="font-size:12px;color:var(--ink-soft)">${peso(c.price)} × ${c.qty}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="qty-adjust">
+            <button data-act="cdec">−</button>
+            <span class="qty-num mono">${c.qty}</span>
+            <button data-act="cinc">+</button>
+          </div>
+          <button class="icon-btn" data-act="cdel" style="color:var(--red)">${ICONS.trash}</button>
+        </div>
+      </div>`).join('')}
+    <div class="cart-strip">
+      <span style="font-weight:800">Total</span>
+      <span class="mono" style="font-weight:800;font-size:18px">${peso(cartTotal)}</span>
+    </div>
+
+    <div style="margin-top:12px;">
+      <label>Bayad (Payment)</label>
+      <div class="segmented" id="paySeg">
+        <button data-pay="cash" class="${pay.method==='cash'?'active':''}">💵 Cash</button>
+        <button data-pay="gcash" class="${pay.method==='gcash'?'active':''}">💳 GCash</button>
+        <button data-pay="utang" class="${pay.method==='utang'?'active':''}">🤝 Utang</button>
+      </div>
+    </div>
+
+    ${pay.method==='cash'? `
+    <div class="grid2" style="margin-top:10px;">
+      <div class="field"><label>Cash tendered</label><input id="cashTendered" type="number" inputmode="decimal" placeholder="0.00" value="${esc(pay.tendered)}"></div>
+      <div class="field"><label>Change</label><input disabled value="${peso(Math.max(0,change))}" style="font-weight:800;color:${change<0?'var(--red)':'var(--green)'};"></div>
+    </div>` : ''}
+
+    ${pay.method==='utang'? `
+    <div class="field" style="margin-top:10px;">
+      <label>Customer</label>
+      <select id="utangCustomerSelect">
+        <option value="">— Select customer —</option>
+        ${state.utang.map(c=>`<option value="${c.id}" ${pay.utangCustomerId===c.id?'selected':''}>${esc(c.name)} (owes ${peso(c.balance)})</option>`).join('')}
+        <option value="__new__">+ New customer…</option>
+      </select>
+    </div>` : ''}
+
+    <button id="checkoutBtn" class="btn-primary btn-block" style="margin-top:12px">✅ Checkout — Record Sale</button>
+  </div>` : ''}
+  `;
+}
+
+/* ---------------- Vouchers ---------------- */
+// Codes uploaded by the user for their ₱100 load voucher batch — pre-filled into the
+// import box so they just review and hit Import, no manual retyping needed.
+const DRAFT_VOUCHER_CODES = `36586409
+62214866
+90368098
+67130252
+91615640
+02071701
+55567416
+70810141
+15842712
+31520236
+69138714
+85628634
+24808983
+57462419
+81666102
+84165049
+10509859
+44948318
+37291051
+79385844`;
+
+function viewVouchers(){
+  const isOwner = state.role==='owner';
+  const today = todayStr();
+  const soldToday = state.sales.filter(s=>s.isVoucher && s.ts.slice(0,10)===today).reduce((a,s)=>a+s.qty,0);
+  const revenueToday = state.sales.filter(s=>s.isVoucher && s.ts.slice(0,10)===today).reduce((a,s)=>a+s.total,0);
+  const totalUnused = state.voucherCodes.filter(c=>voucherCodeStatus(c)==='unused').length;
+  const totalUsed = state.voucherCodes.filter(c=>voucherCodeStatus(c)==='used').length;
+  const totalExpired = state.voucherCodes.filter(c=>voucherCodeStatus(c)==='expired').length;
+  const noImportYet = state.voucherCodes.length===0 && !state._voucherDraftLoaded;
+  const expandedType = state._expandedVoucherType || '';
+
+  return `
+  <div class="card">
+    <h2>📶 WiFi Vouchers</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:var(--green)"><div class="label">Sold today</div><div class="value mono">${soldToday}</div></div>
+      ${isOwner? `<div class="stat" style="--accent:var(--yellow)"><div class="label">Revenue today</div><div class="value mono">${peso(revenueToday)}</div></div>` : ''}
+    </div>
+    <div class="stat-row" style="margin-top:10px;">
+      <div class="stat" style="--accent:var(--green)"><div class="label">Not used</div><div class="value mono">${totalUnused}</div></div>
+      <div class="stat" style="--accent:var(--ink-soft)"><div class="label">Used</div><div class="value mono">${totalUsed}</div></div>
+      <div class="stat" style="--accent:var(--red)"><div class="label">Expired</div><div class="value mono">${totalExpired}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Tap to Sell</h2>
+    ${state.vouchers.length? `<div class="pos-grid">
+      ${state.vouchers.map(v=>{
+        const stock = voucherStockCount(v.id);
+        return `
+        <button class="pos-item" data-sellvoucher="${v.id}" ${stock<=0?'disabled style="opacity:.4"':''}>
+          <span class="n">${esc(v.name)}</span>
+          <span class="p mono">${peso(v.price)}</span>
+          <span class="s">${stock} left</span>
+        </button>`;
+      }).join('')}
+    </div>` : `<div class="empty"><span class="big">📶</span>No voucher types yet — import some codes below.</div>`}
+  </div>
+
+  ${isOwner? `
+  <div class="card">
+    <h2>Import Voucher Codes</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">${noImportYet? 'Pre-filled with the codes from your uploaded file — check them over, set the cost per code, then import. Nothing is saved until you tap Import.' : 'Paste one code per line. Matching an existing type adds to its stock; picking "New voucher type" creates one.'}</p>
+    <form id="voucherImportForm">
+      <div class="field"><label>Voucher type</label>
+        <select name="typeId" id="voucherImportTypeSelect">
+          <option value="__new__" ${noImportYet?'selected':''}>+ New voucher type…</option>
+          ${state.vouchers.map(v=>`<option value="${v.id}">${esc(v.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div id="newVoucherTypeFields" style="${noImportYet? '' : 'display:none;'}">
+        <div class="grid3">
+          <div class="field"><label>Name</label><input name="newName" placeholder="e.g. ₱100 Load" value="${noImportYet?'₱100 Load Voucher':''}"></div>
+          <div class="field"><label>Cost per code (₱)</label><input name="newCost" type="number" step="0.01" placeholder="0.00"></div>
+          <div class="field"><label>Sell price (₱)</label><input name="newPrice" type="number" step="0.01" value="${noImportYet?'100':''}"></div>
+        </div>
+      </div>
+      <div class="field"><label>Codes (one per line)</label>
+        <textarea id="voucherCodesText" rows="7" style="width:100%;font-family:ui-monospace,monospace;font-size:12.5px;border:1px solid var(--line);border-radius:10px;padding:10px;">${esc(state._voucherCodesText ?? (noImportYet ? DRAFT_VOUCHER_CODES : ''))}</textarea>
+      </div>
+      <div class="field"><label>Expiry date (optional — applies to this batch)</label><input name="expiryDate" type="date"></div>
+      <button type="submit" class="btn-primary btn-block">${ICONS.plus} Import Codes</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Manage Voucher Types</h2>
+    ${state.vouchers.length? state.vouchers.map(v=>{
+      const codes = state.voucherCodes.filter(c=>c.typeId===v.id);
+      const unused = codes.filter(c=>voucherCodeStatus(c)==='unused').length;
+      const used = codes.filter(c=>voucherCodeStatus(c)==='used').length;
+      const expired = codes.filter(c=>voucherCodeStatus(c)==='expired').length;
+      return `
+      <div class="item-row" data-vid="${v.id}" style="flex-wrap:wrap;">
+        <div class="item-main">
+          <div class="name">${esc(v.name)}</div>
+          <div class="meta" style="display:flex;gap:10px;align-items:center;margin-top:4px;">
+            <span>cost ₱<input type="number" step="0.01" class="voucherCost" data-id="${v.id}" value="${v.cost}" style="width:60px;padding:4px 6px;font-size:12px;"></span>
+            <span>sell ₱<input type="number" step="0.01" class="voucherPrice" data-id="${v.id}" value="${v.price}" style="width:60px;padding:4px 6px;font-size:12px;"></span>
+          </div>
+          <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">Not used: ${unused} · Used: ${used} · Expired: ${expired}</div>
+        </div>
+        <button class="btn-secondary" data-viewcodes="${v.id}" style="padding:6px 10px;font-size:12px;">${expandedType===v.id?'Hide':'View'} codes</button>
+        <button class="icon-btn" data-delvoucher="${v.id}" style="color:var(--red)">${ICONS.trash}</button>
+      </div>
+      ${expandedType===v.id ? `
+      <div style="max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:0 0 10px;background:var(--paper);">
+        ${codes.length? codes.map(c=>{
+          const st = voucherCodeStatus(c);
+          const pillClass = st==='unused' ? 'ok' : 'low';
+          return `<div class="ledger-row" style="padding:6px 0;">
+            <span class="mono" style="font-size:12.5px;">${esc(c.code)}</span>
+            <span style="display:flex;align-items:center;gap:8px;">
+              <span class="pill ${pillClass}">${st}</span>
+              ${st==='unused'? `<button data-expirecode="${c.id}" class="icon-btn" title="Mark expired" style="color:var(--red);">${ICONS.close}</button>` : ''}
+            </span>
+          </div>`;
+        }).join('') : `<div class="empty" style="padding:10px;">No codes imported for this type yet.</div>`}
+      </div>` : ''}
+      `;
+    }).join('') : `<div class="empty"><span class="big">📶</span>No voucher types yet.</div>`}
+  </div>` : ''}
+  `;
+}
+
+function bindVoucherEvents(){
+  document.querySelectorAll('[data-sellvoucher]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const type = state.vouchers.find(x=>x.id===btn.dataset.sellvoucher);
+      if(!type) return;
+      const code = state.voucherCodes.find(c=>c.typeId===type.id && voucherCodeStatus(c)==='unused');
+      if(!code){ showToast('No stock left for '+type.name); return; }
+      code.status = 'used';
+      code.soldTs = new Date().toISOString();
+      state.sales.push({
+        id:uid(), itemId:null, name:type.name+' (WiFi Voucher)', qty:1,
+        price:type.price, cost:type.cost, total:type.price,
+        ts:new Date().toISOString(), payment:'Cash', isVoucher:true, voucherCode:code.code,
+      });
+      await Promise.all([storageSet('voucher-codes', state.voucherCodes), storageSet('sales', state.sales)]);
+      showToast('✅ Sold '+type.name);
+      render();
+    });
+  });
+
+  document.getElementById('voucherImportTypeSelect')?.addEventListener('change', e=>{
+    const fields = document.getElementById('newVoucherTypeFields');
+    if(fields) fields.style.display = e.target.value==='__new__' ? '' : 'none';
+  });
+  document.getElementById('voucherCodesText')?.addEventListener('input', e=>{
+    state._voucherCodesText = e.target.value;
+  });
+
+  document.getElementById('voucherImportForm')?.addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    let typeId = f.get('typeId');
+    let type;
+    if(typeId==='__new__'){
+      const name = (f.get('newName')||'').trim();
+      const cost = parseFloat(f.get('newCost'))||0;
+      const price = parseFloat(f.get('newPrice'))||0;
+      if(!name || !price){ showToast('⚠️ Give the new voucher type a name and price'); return; }
+      type = {id:uid(), name, cost, price};
+      state.vouchers.push(type);
+      typeId = type.id;
+    } else {
+      type = state.vouchers.find(v=>v.id===typeId);
+      if(!type){ showToast('⚠️ Pick a voucher type'); return; }
+    }
+    const raw = document.getElementById('voucherCodesText').value;
+    const expiry = f.get('expiryDate') || '';
+    const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
+    const existingCodes = new Set(state.voucherCodes.map(c=>c.code));
+    let added=0, dupes=0;
+    for(const code of lines){
+      if(existingCodes.has(code)){ dupes++; continue; }
+      state.voucherCodes.push({id:uid(), typeId, code, status:'unused', expiryDate:expiry, soldTs:''});
+      existingCodes.add(code);
+      added++;
+    }
+    await Promise.all([storageSet('vouchers', state.vouchers), storageSet('voucher-codes', state.voucherCodes)]);
+    state._voucherDraftLoaded = true;
+    state._voucherCodesText = '';
+    showToast(`✅ Imported ${added} code(s)${dupes?`, skipped ${dupes} duplicate(s)`:''}`);
+    render();
+  });
+
+  document.querySelectorAll('.voucherCost').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const v = state.vouchers.find(x=>x.id===inp.dataset.id);
+      if(v){ v.cost = parseFloat(inp.value)||0; await storageSet('vouchers', state.vouchers); showToast('✅ Cost updated'); }
+    });
+  });
+  document.querySelectorAll('.voucherPrice').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const v = state.vouchers.find(x=>x.id===inp.dataset.id);
+      if(v){ v.price = parseFloat(inp.value)||0; await storageSet('vouchers', state.vouchers); showToast('✅ Price updated'); }
+    });
+  });
+  document.querySelectorAll('[data-viewcodes]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      state._expandedVoucherType = state._expandedVoucherType===btn.dataset.viewcodes ? '' : btn.dataset.viewcodes;
+      render();
+    });
+  });
+  document.querySelectorAll('[data-expirecode]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const code = state.voucherCodes.find(c=>c.id===btn.dataset.expirecode);
+      if(!code) return;
+      if(!confirm(`Mark code ${code.code} as expired? This removes it from sellable stock.`)) return;
+      code.expiryDate = todayStr();
+      await storageSet('voucher-codes', state.voucherCodes);
+      render();
+    });
+  });
+  document.querySelectorAll('[data-delvoucher]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const hasCodes = state.voucherCodes.some(c=>c.typeId===btn.dataset.delvoucher);
+      if(hasCodes){ showToast('⚠️ Can\'t delete — this type still has imported codes on record'); return; }
+      if(!confirm('Remove this voucher type?')) return;
+      state.vouchers = state.vouchers.filter(v=>v.id!==btn.dataset.delvoucher);
+      await storageSet('vouchers', state.vouchers);
+      render();
+    });
+  });
+}
+
+/* ---------------- Log: Utang / Gastos / GCash ---------------- */
+function viewLog(){
+  const seg = state._logSeg || 'utang';
+  const isOwner = state.role==='owner';
+  return `
+  <div class="card">
+    <h2>📒 Log</h2>
+    <div class="segmented" id="logSeg">
+      <button data-seg="utang" class="${seg==='utang'?'active':''}">🤝 Utang</button>
+      <button data-seg="gastos" class="${seg==='gastos'?'active':''}">🧾 Gastos</button>
+      <button data-seg="gcash" class="${seg==='gcash'?'active':''}">💳 GCash</button>
+    </div>
+  </div>
+  ${seg==='utang'? viewUtangSection() : seg==='gastos'? viewGastosSection(isOwner) : viewGcashSection(isOwner)}
+  `;
+}
+
+function viewUtangSection(){
+  const total = state.utang.reduce((a,c)=>a+c.balance,0);
+  return `
+  <div class="card">
+    <h2>Add Customer</h2>
+    <form id="addUtangCustForm">
+      <div class="field"><label>Customer name</label><input name="name" required placeholder="e.g. Aling Nena"></div>
+      <div class="field"><label>Contact (optional)</label><input name="contact" placeholder="phone number"></div>
+      <button type="submit" class="btn-secondary btn-block">+ Add Customer</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Customers (Total owed: ${peso(total)})</h2>
+    ${state.utang.length? state.utang.map(c=>`
+      <div class="ledger-row" style="align-items:flex-start;">
+        <div style="flex:1;">
+          <strong>${esc(c.name)}</strong> ${c.contact? `<span class="meta" style="font-size:11.5px;color:var(--ink-soft);">· ${esc(c.contact)}</span>`:''}
+          <div class="mono" style="font-weight:800;color:${c.balance>0?'var(--red)':'var(--green)'};margin-top:2px;">${peso(c.balance)} owed</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+          <button class="btn-secondary" data-utangborrow="${c.id}" style="padding:6px 10px;font-size:12px;">+ Borrow</button>
+          <button class="btn-primary" data-utangpay="${c.id}" style="padding:6px 10px;font-size:12px;">Payment</button>
+        </div>
+      </div>
+    `).join('') : `<div class="empty"><span class="big">🤝</span>No utang customers yet.</div>`}
+  </div>`;
+}
+
+function viewGastosSection(isOwner){
+  const today = todayStr();
+  const todayTotal = state.expenses.filter(e=>e.date.slice(0,10)===today).reduce((a,e)=>a+e.amount,0);
+  const recent = [...state.expenses].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
+  return `
+  <div class="card">
+    <h2>Log an Expense</h2>
+    <form id="addExpenseForm">
+      <div class="grid2">
+        <div class="field"><label>Category</label>
+          <select name="category">
+            <option>Delivery / Supplier Payment</option>
+            <option>Utilities</option>
+            <option>Rent</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="field"><label>Amount (₱)</label><input name="amount" type="number" step="0.01" required></div>
+      </div>
+      <div class="field"><label>Remarks</label><input name="remarks" placeholder="e.g. softdrinks delivery, Aug 15"></div>
+      <button type="submit" class="btn-primary btn-block">${ICONS.plus} Log Expense</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Expenses ${isOwner? `— Today: ${peso(todayTotal)}`:''}</h2>
+    ${recent.length? recent.map(e=>`
+      <div class="ledger-row">
+        <div><strong>${esc(e.category)}</strong>
+          <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">${new Date(e.date).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} ${e.remarks? '· '+esc(e.remarks):''}</div>
+        </div>
+        <span class="mono" style="font-weight:800;">${peso(e.amount)}</span>
+      </div>`).join('') : `<div class="empty"><span class="big">🧾</span>No expenses logged yet.</div>`}
+  </div>`;
+}
+
+function viewGcashSection(isOwner){
+  const float = (state.config.gcashFloatStart||0)
+    + state.gcash.filter(g=>g.type==='cash-out').reduce((a,g)=>a+g.amount,0)
+    - state.gcash.filter(g=>g.type==='cash-in').reduce((a,g)=>a+g.amount,0);
+  const recent = [...state.gcash].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
+  return `
+  <div class="card">
+    <h2>💳 GCash Float</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:${float<0?'var(--red)':'var(--green)'}"><div class="label">Current float</div><div class="value mono">${peso(float)}</div></div>
+    </div>
+    ${isOwner? `
+    <div class="field" style="margin-top:10px;"><label>Set starting float (adjust if it drifts from your actual balance)</label>
+      <input id="gcashFloatStart" type="number" step="0.01" value="${state.config.gcashFloatStart||0}">
+    </div>` : ''}
+    <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Cash In: customer gives cash, you send GCash (float goes down). Cash Out: customer sends GCash, you give cash (float goes up).</p>
+  </div>
+  <div class="card">
+    <h2>Record Cash-In / Cash-Out</h2>
+    <form id="gcashForm">
+      <div class="segmented" id="gcashTypeSeg">
+        <button type="button" data-gtype="cash-in" class="active">Cash In</button>
+        <button type="button" data-gtype="cash-out">Cash Out</button>
+      </div>
+      <input type="hidden" name="type" id="gcashTypeInput" value="cash-in">
+      <div class="grid2" style="margin-top:10px;">
+        <div class="field"><label>Amount (₱)</label><input id="gcashAmount" name="amount" type="number" step="0.01" required></div>
+        ${isOwner? `<div class="field"><label>Your fee (₱) <span style="font-weight:400;color:var(--ink-soft);">auto, editable</span></label><input id="gcashFee" name="fee" type="number" step="0.01" value="0"></div>` : ''}
+      </div>
+      <div class="field"><label>Remarks</label><input name="remarks" placeholder="optional"></div>
+      <button type="submit" class="btn-primary btn-block">Save Transaction</button>
+    </form>
+    ${isOwner? `<p style="font-size:11px;color:var(--ink-soft);margin-top:8px;">Fee auto-fills from your ₱10-per-₱500-bracket schedule (₱1–500 → ₱10, up to ₱9,501–10,000 → ₱200) — edit it any time before saving if a transaction needs a different fee.</p>` : ''}
+  </div>
+  <div class="card">
+    <h2>Recent GCash Transactions</h2>
+    ${recent.length? recent.map(g=>`
+      <div class="ledger-row">
+        <div><strong>${g.type==='cash-in'?'Cash In':'Cash Out'}</strong>
+          <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">${new Date(g.date).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} ${g.remarks?'· '+esc(g.remarks):''}${isOwner&&g.fee?` · fee ${peso(g.fee)}`:''}</div>
+        </div>
+        <span class="mono" style="font-weight:800;">${peso(g.amount)}</span>
+      </div>`).join('') : `<div class="empty"><span class="big">💳</span>No GCash transactions yet.</div>`}
+  </div>`;
+}
+
+function bindLogEvents(){
+  document.getElementById('logSeg')?.addEventListener('click', e=>{
+    const b = e.target.closest('button[data-seg]');
+    if(!b) return;
+    state._logSeg = b.dataset.seg;
+    render();
+  });
+
+  document.getElementById('addUtangCustForm')?.addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const name = f.get('name').trim();
+    if(!name) return;
+    state.utang.push({id:uid(), name, contact:(f.get('contact')||'').trim(), balance:0, history:[]});
+    await storageSet('utang', state.utang);
+    showToast('✅ Customer added');
+    render();
+  });
+  document.querySelectorAll('[data-utangborrow]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const cust = state.utang.find(c=>c.id===btn.dataset.utangborrow);
+      if(!cust) return;
+      const amt = parseFloat(prompt(`How much did ${cust.name} borrow?`, '0'));
+      if(!amt || amt<=0) return;
+      cust.balance += amt;
+      cust.history.push({id:uid(), type:'charge', amount:amt, remarks:'Cash borrowed', date:new Date().toISOString(), addedBy:state.role});
+      await storageSet('utang', state.utang);
+      showToast('✅ Recorded');
+      render();
+    });
+  });
+  document.querySelectorAll('[data-utangpay]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const cust = state.utang.find(c=>c.id===btn.dataset.utangpay);
+      if(!cust) return;
+      const amt = parseFloat(prompt(`Payment amount from ${cust.name}?`, cust.balance));
+      if(!amt || amt<=0) return;
+      cust.balance = Math.max(0, cust.balance - amt);
+      cust.history.push({id:uid(), type:'payment', amount:amt, remarks:'Payment received', date:new Date().toISOString(), addedBy:state.role});
+      await storageSet('utang', state.utang);
+      showToast('✅ Payment recorded');
+      render();
+    });
+  });
+
+  document.getElementById('addExpenseForm')?.addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const amount = parseFloat(f.get('amount'))||0;
+    if(amount<=0) return;
+    state.expenses.push({id:uid(), date:new Date().toISOString(), category:f.get('category'), amount, remarks:(f.get('remarks')||'').trim(), addedBy:state.role});
+    await storageSet('expenses', state.expenses);
+    showToast('✅ Expense logged');
+    render();
+  });
+
+  document.getElementById('gcashAmount')?.addEventListener('input', e=>{
+    const feeField = document.getElementById('gcashFee');
+    if(feeField && !feeField.dataset.touched) feeField.value = gcashSuggestedFee(e.target.value);
+  });
+  document.getElementById('gcashFee')?.addEventListener('input', e=>{ e.target.dataset.touched = '1'; });
+
+  document.getElementById('gcashTypeSeg')?.addEventListener('click', e=>{
+    const b = e.target.closest('button[data-gtype]');
+    if(!b) return;
+    document.querySelectorAll('#gcashTypeSeg button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('gcashTypeInput').value = b.dataset.gtype;
+  });
+  document.getElementById('gcashForm')?.addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const amount = parseFloat(f.get('amount'))||0;
+    if(amount<=0) return;
+    state.gcash.push({id:uid(), date:new Date().toISOString(), type:f.get('type'), amount, fee:parseFloat(f.get('fee'))||0, remarks:(f.get('remarks')||'').trim(), addedBy:state.role});
+    await storageSet('gcash', state.gcash);
+    showToast('✅ Transaction saved');
+    render();
+  });
+  document.getElementById('gcashFloatStart')?.addEventListener('change', async e=>{
+    state.config.gcashFloatStart = parseFloat(e.target.value)||0;
+    await storageSet('store-config', state.config);
+    showToast('✅ Float updated');
+    render();
+  });
+}
+
+/* ---------------- Receipts / OCR ---------------- */
+let ocrWorking = false;
+function viewReceipts(){
+  const recent = [...state.receiptsIndex].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,15);
+  return `
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:16px 16px 6px;">
+      <h2 style="margin-bottom:4px;">Scan Supplier Resibo</h2>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">Take a photo of a supplier receipt — we'll try to read item names and prices automatically so you can add them to stock in one go.</p>
+    </div>
+    <div style="padding:0 16px 16px;">
+      <div class="receipt-drop" id="dropZone">
+        ${ICONS.camera}
+        <div style="margin-top:6px;font-weight:700;color:var(--ink)">Tap to take a photo or upload</div>
+        <div style="font-size:12px;margin-top:2px;">JPG / PNG</div>
+        <input type="file" id="receiptFile" accept="image/*" capture="environment" style="display:none">
+      </div>
+    </div>
+  </div>
+  <div class="torn"></div>
+  <div class="card">
+    <h2>Past Receipts</h2>
+    ${recent.length? recent.map(r=>`
+      <div class="ledger-row" data-receipt="${r.id}" style="cursor:pointer">
+        <div><strong>${esc(r.supplier||'Receipt')}</strong>
+          <div class="meta" style="font-size:12px;color:var(--ink-soft)">${new Date(r.date).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})} · ${r.itemCount} item(s)</div>
+        </div>
+        <div class="mono" style="font-weight:800">${peso(r.total)}</div>
+      </div>`).join('') : `<div class="empty"><span class="big">🧾</span>No receipts scanned yet.</div>`}
+  </div>
+  `;
+}
+
+function openReceiptModal(){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+  <div class="modal-bg" id="receiptModalBg">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Add Stock from Receipt</h3>
+        <button class="icon-btn" id="closeReceiptModal">${ICONS.close}</button>
+      </div>
+      <div id="receiptModalBody">
+        <div style="text-align:center;padding:20px 0;">
+          <img id="receiptPreview" style="max-width:100%;max-height:220px;border-radius:10px;border:1px solid var(--line);">
+        </div>
+        <div class="progress-wrap"><div class="progress-bar" id="ocrProgress"></div></div>
+        <div id="ocrStatus" style="font-size:12.5px;color:var(--ink-soft);text-align:center;">Reading receipt…</div>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('closeReceiptModal').onclick = ()=>{ root.innerHTML=''; };
+  document.getElementById('receiptModalBg').addEventListener('click', e=>{ if(e.target.id==='receiptModalBg') root.innerHTML=''; });
+}
+
+function parseReceiptText(text){
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+  const skip = /(total|subtotal|vat|cash|change|thank|invoice|receipt|date|qty|amount due|tender|tin|address)/i;
+  const priceRe = /([₱P]?\s?\d{1,5}[.,]\d{2}|\d{2,5})\s*$/;
+  const rows = [];
+  for(const line of lines){
+    if(skip.test(line)) continue;
+    const m = line.match(priceRe);
+    if(!m) continue;
+    let priceStr = m[1].replace(/[₱P\s]/g,'').replace(',','.');
+    let price = parseFloat(priceStr);
+    if(isNaN(price) || price<=0 || price>100000) continue;
+    let name = line.slice(0, m.index).trim().replace(/[-–—.:\s]+$/,'');
+    if(name.length<2) continue;
+    // strip a leading qty like "2x" or "2 "
+    let qty = 1;
+    const qm = name.match(/^(\d{1,3})\s*[xX]?\s+/);
+    if(qm){ qty = parseInt(qm[1]); name = name.slice(qm[0].length).trim(); }
+    if(name.length<2) continue;
+    rows.push({name: titleCase(name), qty, price});
+  }
+  return rows.slice(0,40);
+}
+function titleCase(s){
+  return s.toLowerCase().replace(/\b\w/g, c=>c.toUpperCase());
+}
+
+function renderParsedRows(rows){
+  return `
+  <div style="max-height:340px;overflow-y:auto;margin:10px 0;">
+    <div class="parse-row" style="font-weight:700;font-size:11.5px;color:var(--ink-soft);">
+      <span></span><span>ITEM</span><span>QTY</span><span>COST ₱</span>
+    </div>
+    ${rows.map((r,idx)=>`
+      <div class="parse-row" data-idx="${idx}">
+        <input type="checkbox" checked class="rowInclude">
+        <input type="text" class="rowName" value="${esc(r.name)}">
+        <input type="number" class="rowQty" value="${r.qty}" min="1">
+        <input type="number" class="rowPrice" value="${r.price}" step="0.01">
+      </div>`).join('')}
+  </div>
+  <div class="field"><label>Supplier / Note</label><input id="receiptSupplier" placeholder="e.g. Almar Trading"></div>
+  <button id="saveReceiptBtn" class="btn-primary btn-block">➕ Add these to Stock</button>
+  <button id="addManualRow" class="btn-secondary btn-block" style="margin-top:8px">+ Add row manually</button>
+  `;
+}
+
+async function handleReceiptFile(file){
+  if(!file) return;
+  openReceiptModal();
+  const dataUrl = await fileToCompressedDataUrl(file, 900, 0.65);
+  document.getElementById('receiptPreview').src = dataUrl;
+
+  let rows = [];
+  let rawText = '';
+  try{
+    if(typeof Tesseract === 'undefined') throw new Error('OCR engine unavailable');
+    const result = await Tesseract.recognize(dataUrl, 'eng', {
+      logger: m=>{
+        if(m.status && m.progress!=null){
+          const bar = document.getElementById('ocrProgress');
+          const st = document.getElementById('ocrStatus');
+          if(bar) bar.style.width = Math.round(m.progress*100)+'%';
+          if(st) st.textContent = m.status + '…';
+        }
+      }
+    });
+    rawText = result.data.text || '';
+    rows = parseReceiptText(rawText);
+  }catch(e){
+    console.warn('OCR failed', e);
+  }
+
+  const body = document.getElementById('receiptModalBody');
+  if(!body) return; // modal closed already
+  if(rows.length===0){
+    body.innerHTML += `
+      <div style="text-align:center;font-size:12.5px;color:var(--ink-soft);margin:10px 0;">
+        ${rawText? "Couldn't confidently detect item lines — add them manually below." : "Text recognition wasn't able to run in this browser — add items manually below."}
+      </div>
+      ${renderParsedRows([{name:'', qty:1, price:0}])}
+    `;
+  } else {
+    body.querySelector('.progress-wrap')?.remove();
+    body.querySelector('#ocrStatus')?.remove();
+    body.insertAdjacentHTML('beforeend', renderParsedRows(rows));
+  }
+  bindReceiptModalEvents(dataUrl, rawText);
+}
+
+function fileToCompressedDataUrl(file, maxW, quality){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const scale = Math.min(1, maxW/img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width*scale;
+        canvas.height = img.height*scale;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function bindReceiptModalEvents(imageDataUrl, rawText){
+  const body = document.getElementById('receiptModalBody');
+  body.querySelector('#addManualRow')?.addEventListener('click', ()=>{
+    const container = body.querySelector('div[style*="overflow-y"]');
+    const idx = container.querySelectorAll('.parse-row[data-idx]').length;
+    container.insertAdjacentHTML('beforeend', `
+      <div class="parse-row" data-idx="${idx}">
+        <input type="checkbox" checked class="rowInclude">
+        <input type="text" class="rowName" placeholder="Item name">
+        <input type="number" class="rowQty" value="1" min="1">
+        <input type="number" class="rowPrice" value="0" step="0.01">
+      </div>`);
+  });
+
+  body.querySelector('#saveReceiptBtn')?.addEventListener('click', async ()=>{
+    const rowsEls = [...body.querySelectorAll('.parse-row[data-idx]')];
+    const toAdd = rowsEls.map(el=>({
+      include: el.querySelector('.rowInclude').checked,
+      name: el.querySelector('.rowName').value.trim(),
+      qty: parseInt(el.querySelector('.rowQty').value)||0,
+      price: parseFloat(el.querySelector('.rowPrice').value)||0,
+    })).filter(r=>r.include && r.name && r.qty>0);
+
+    if(toAdd.length===0){ showToast('No rows selected'); return; }
+
+    let addedCount=0, totalCost=0;
+    for(const row of toAdd){
+      totalCost += row.qty*row.price;
+      const existing = state.inventory.find(i=>i.name.toLowerCase()===row.name.toLowerCase());
+      if(existing){
+        existing.qty += row.qty;
+        existing.cost = row.price; // update to latest supplier cost
+      } else {
+        state.inventory.push({
+          id: uid(), name: row.name, category:'', unit:'pc',
+          cost: row.price, price: Math.round(row.price*1.25*100)/100,
+          qty: row.qty, reorder: 5,
+        });
+      }
+      addedCount++;
+    }
+    await storageSet('inventory', state.inventory);
+
+    const receiptId = uid();
+    const supplier = body.querySelector('#receiptSupplier')?.value.trim() || '';
+    const receiptRecord = {
+      id: receiptId, date: new Date().toISOString(), supplier,
+      image: imageDataUrl, rawText, items: toAdd, total: totalCost,
+    };
+    await storageSet('receipt:'+receiptId, receiptRecord);
+    state.receiptsIndex.push({id:receiptId, date:receiptRecord.date, supplier, total:totalCost, itemCount:toAdd.length});
+    await storageSet('receipts-index', state.receiptsIndex);
+
+    document.getElementById('modalRoot').innerHTML='';
+    showToast(`✅ ${addedCount} item(s) added to stock`);
+    render();
+  });
+}
+
+async function openPastReceipt(id){
+  const rec = await storageGet('receipt:'+id, null);
+  if(!rec){ showToast('Receipt not found'); return; }
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+  <div class="modal-bg" id="pastReceiptBg">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>${esc(rec.supplier||'Receipt')}</h3>
+        <button class="icon-btn" id="closePastReceipt">${ICONS.close}</button>
+      </div>
+      <img src="${rec.image}" style="max-width:100%;border-radius:10px;border:1px solid var(--line);margin-bottom:10px;">
+      <div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px;">${new Date(rec.date).toLocaleString('en-PH')}</div>
+      ${rec.items.map(i=>`<div class="ledger-row"><span>${esc(i.name)} ×${i.qty}</span><span class="mono">${peso(i.price*i.qty)}</span></div>`).join('')}
+      <div class="ledger-row" style="font-weight:800;border-top:1px solid var(--line);margin-top:6px;"><span>Total</span><span class="mono">${peso(rec.total)}</span></div>
+    </div>
+  </div>`;
+  document.getElementById('closePastReceipt').onclick=()=>{root.innerHTML='';};
+  document.getElementById('pastReceiptBg').addEventListener('click', e=>{ if(e.target.id==='pastReceiptBg') root.innerHTML=''; });
+}
+
+/* ---------------- Reports ---------------- */
+function viewReports(){
+  const range = state._reportRange || '7';
+  const now = new Date();
+  const cutoff = range==='all' ? null : new Date(now.getTime() - Number(range)*86400000);
+  const filtered = state.sales.filter(s=> !cutoff || new Date(s.ts) >= cutoff);
+  const revenue = filtered.reduce((a,s)=>a+s.total,0);
+  const cost = filtered.reduce((a,s)=>a+s.cost*s.qty,0);
+  const itemProfit = revenue-cost;
+
+  const gcashFiltered = state.gcash.filter(g=> !cutoff || new Date(g.date) >= cutoff);
+  const gcashFees = gcashFiltered.reduce((a,g)=>a+(g.fee||0),0);
+
+  const expFiltered = state.expenses.filter(e=> !cutoff || new Date(e.date) >= cutoff);
+  const expTotal = expFiltered.reduce((a,e)=>a+e.amount,0);
+
+  const netProfit = itemProfit + gcashFees - expTotal;
+
+  const voucherSales = filtered.filter(s=>s.isVoucher);
+  const voucherRevenue = voucherSales.reduce((a,s)=>a+s.total,0);
+
+  const byItem = {};
+  filtered.forEach(s=>{
+    byItem[s.name] = byItem[s.name] || {qty:0, revenue:0};
+    byItem[s.name].qty += s.qty;
+    byItem[s.name].revenue += s.total;
+  });
+  const top = Object.entries(byItem).sort((a,b)=>b[1].revenue-a[1].revenue).slice(0,6);
+  const maxRev = top.length? top[0][1].revenue : 1;
+
+  const utangTotal = state.utang.reduce((a,c)=>a+c.balance,0);
+
+  return `
+  <div class="card">
+    <h2>Reports — Overall</h2>
+    <div class="segmented" id="rangeSeg">
+      <button data-r="1" class="${range==='1'?'active':''}">Today</button>
+      <button data-r="7" class="${range==='7'?'active':''}">7 days</button>
+      <button data-r="30" class="${range==='30'?'active':''}">30 days</button>
+      <button data-r="all" class="${range==='all'?'active':''}">All</button>
+    </div>
+    <div class="stat-row" style="margin-top:14px;">
+      <div class="stat" style="--accent:var(--green)"><div class="label">Revenue</div><div class="value mono">${peso(revenue)}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Cost of Goods</div><div class="value mono">${peso(cost)}</div></div>
+      <div class="stat" style="--accent:var(--red)"><div class="label">Item Profit</div><div class="value mono">${peso(itemProfit)}</div></div>
+    </div>
+    <div class="stat-row" style="margin-top:10px;">
+      <div class="stat" style="--accent:var(--green)"><div class="label">GCash fees</div><div class="value mono">${peso(gcashFees)}</div></div>
+      <div class="stat" style="--accent:var(--red)"><div class="label">Expenses</div><div class="value mono">${peso(expTotal)}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Net Profit</div><div class="value mono" style="color:${netProfit<0?'var(--red)':'inherit'}">${peso(netProfit)}</div></div>
+    </div>
+    <div class="stat-row" style="margin-top:10px;">
+      <div class="stat"><div class="label">WiFi voucher revenue</div><div class="value mono">${peso(voucherRevenue)}</div></div>
+      <div class="stat"><div class="label">Utang outstanding (all-time)</div><div class="value mono">${peso(utangTotal)}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Top Sellers</h2>
+    ${top.length? top.map(([name,d])=>`
+      <div class="bar-row">
+        <div class="bar-label"><span>${esc(name)} <span style="color:var(--ink-soft)">×${d.qty}</span></span><span class="mono">${peso(d.revenue)}</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.max(4,d.revenue/maxRev*100)}%"></div></div>
+      </div>`).join('') : `<div class="empty">No sales in this range yet.</div>`}
+  </div>
+
+  <div class="card">
+    <h2>Backup</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Download a copy of all your store data (items, sales, expenses, utang, GCash log, vouchers) as a file you can keep safe.</p>
+    <button id="exportBtn" class="btn-secondary btn-block">⬇ Export Backup (JSON)</button>
+  </div>
+  `;
+}
+
+/* ---------------- Event binding per tab ---------------- */
+function bindTabEvents(){
+  document.getElementById('dismissInstallHint')?.addEventListener('click', async ()=>{
+    state.showInstallHint = false;
+    await deviceSet('install-hint-dismissed', true);
+    render();
+  });
+
+  document.getElementById('syncNowBtn')?.addEventListener('click', async ()=>{
+    showToast('🔄 Syncing…');
+    await backgroundSync();
+  });
+
+  if(state.tab==='inventory'){
+    document.getElementById('addItemForm').addEventListener('submit', async e=>{
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const item = {
+        id: uid(),
+        name: f.get('name').trim(),
+        category: f.get('category') || state.categories[0] || 'Others',
+        unit: f.get('unit').trim() || 'pc',
+        cost: state.role==='owner' ? (parseFloat(f.get('cost'))||0) : 0,
+        price: parseFloat(f.get('price'))||0,
+        qty: parseInt(f.get('qty'))||0,
+        reorder: parseInt(f.get('reorder'))||0,
+        remarks: (f.get('remarks')||'').trim(),
+      };
+      if(!item.name) return;
+      state.inventory.push(item);
+      await storageSet('inventory', state.inventory);
+      showToast('✅ Item added: '+item.name);
+      e.target.reset();
+      render();
+    });
+
+    document.getElementById('addCategoryForm')?.addEventListener('submit', async e=>{
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const name = (f.get('newCat')||'').trim();
+      if(!name) return;
+      if(state.categories.some(c=>c.toLowerCase()===name.toLowerCase())){ showToast('Category already exists'); return; }
+      state.categories.push(name);
+      await storageSet('categories', state.categories);
+      e.target.reset();
+      render();
+    });
+    document.querySelectorAll('[data-delcat]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const cat = btn.dataset.delcat;
+        if(!confirm(`Remove category "${cat}"? Items keep their label but it won't be selectable anymore.`)) return;
+        state.categories = state.categories.filter(c=>c!==cat);
+        await storageSet('categories', state.categories);
+        render();
+      });
+    });
+
+    document.querySelectorAll('[data-invcat]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ state._invCategory = btn.dataset.invcat; render(); });
+    });
+
+    document.getElementById('bulkImportText')?.addEventListener('input', e=>{
+      state._bulkText = e.target.value;
+      state._draftLoaded = true;
+    });
+    document.getElementById('bulkClearBtn')?.addEventListener('click', ()=>{
+      state._bulkText = '';
+      state._draftLoaded = true;
+      render();
+    });
+    document.getElementById('bulkImportBtn')?.addEventListener('click', async ()=>{
+      const raw = document.getElementById('bulkImportText').value;
+      const {added, updated, skipped} = mergeBulkIntoInventory(raw, state.inventory);
+      await storageSet('inventory', state.inventory);
+      state._bulkText = '';
+      state._draftLoaded = true;
+      showToast(`✅ Imported: ${added} new, ${updated} updated${skipped?`, ${skipped} skipped`:''}`);
+      render();
+    });
+
+    document.getElementById('invSearch').addEventListener('input', e=>{
+      state._invSearch = e.target.value;
+      render();
+      document.getElementById('invSearch').focus();
+      const v = document.getElementById('invSearch').value;
+      document.getElementById('invSearch').setSelectionRange(v.length,v.length);
+    });
+
+    document.querySelectorAll('.quickCost').forEach(inp=>{
+      inp.addEventListener('change', async ()=>{
+        const item = state.inventory.find(i=>i.id===inp.dataset.id);
+        if(!item) return;
+        item.cost = parseFloat(inp.value)||0;
+        await storageSet('inventory', state.inventory);
+        showToast('✅ Cost updated');
+      });
+    });
+    document.querySelectorAll('.quickPrice').forEach(inp=>{
+      inp.addEventListener('change', async ()=>{
+        const item = state.inventory.find(i=>i.id===inp.dataset.id);
+        if(!item) return;
+        item.price = parseFloat(inp.value)||0;
+        await storageSet('inventory', state.inventory);
+        showToast('✅ Price updated');
+      });
+    });
+
+    document.querySelectorAll('.item-row').forEach(row=>{
+      const id = row.dataset.id;
+      const item = state.inventory.find(i=>i.id===id);
+      row.querySelector('[data-act="inc"]').addEventListener('click', async ()=>{
+        item.qty++; await storageSet('inventory', state.inventory); render();
+      });
+      row.querySelector('[data-act="dec"]').addEventListener('click', async ()=>{
+        item.qty = Math.max(0,item.qty-1); await storageSet('inventory', state.inventory); render();
+      });
+      row.querySelector('[data-act="del"]').addEventListener('click', async ()=>{
+        if(!confirm(`Remove "${item.name}" from inventory?`)) return;
+        state.inventory = state.inventory.filter(i=>i.id!==id);
+        await storageSet('inventory', state.inventory);
+        showToast('🗑️ Item removed');
+        render();
+      });
+      row.querySelector('[data-act="edit"]').addEventListener('click', ()=> openEditModal(item));
+    });
+
+    document.getElementById('invSelectAll')?.addEventListener('change', e=>{
+      const visibleIds = [...document.querySelectorAll('.invSelectItem')].map(cb=>cb.dataset.id);
+      if(e.target.checked) visibleIds.forEach(id=>state._invSelected.add(id));
+      else visibleIds.forEach(id=>state._invSelected.delete(id));
+      render();
+    });
+    document.querySelectorAll('.invSelectItem').forEach(cb=>{
+      cb.addEventListener('change', e=>{
+        if(e.target.checked) state._invSelected.add(cb.dataset.id);
+        else state._invSelected.delete(cb.dataset.id);
+        render();
+      });
+    });
+    document.getElementById('bulkCatApplyBtn')?.addEventListener('click', async ()=>{
+      const cat = document.getElementById('bulkCatAssign').value;
+      const ids = state._invSelected;
+      state.inventory.forEach(i=>{ if(ids.has(i.id)) i.category = cat; });
+      await storageSet('inventory', state.inventory);
+      showToast(`✅ Set category for ${ids.size} item(s)`);
+      state._invSelected = new Set();
+      render();
+    });
+    document.getElementById('bulkDeleteBtn')?.addEventListener('click', async ()=>{
+      const ids = state._invSelected;
+      if(!confirm(`Delete ${ids.size} selected item(s)? This can't be undone.`)) return;
+      state.inventory = state.inventory.filter(i=>!ids.has(i.id));
+      await storageSet('inventory', state.inventory);
+      showToast(`🗑️ Deleted ${ids.size} item(s)`);
+      state._invSelected = new Set();
+      render();
+    });
+  }
+
+  if(state.tab==='sell'){
+    document.getElementById('sellSearch').addEventListener('input', e=>{
+      state._sellSearch = e.target.value;
+      render();
+      const el=document.getElementById('sellSearch');
+      el.focus(); el.setSelectionRange(el.value.length,el.value.length);
+    });
+    document.querySelectorAll('[data-sellcat]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ state._sellCategory = btn.dataset.sellcat; render(); });
+    });
+    document.querySelectorAll('.pos-item').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.dataset.id;
+        const item = state.inventory.find(i=>i.id===id);
+        if(!item || item.qty<=0) return;
+        const line = state.cart.find(c=>c.itemId===id);
+        const inCart = line? line.qty : 0;
+        if(inCart>=item.qty){ showToast('No more stock for '+item.name); return; }
+        if(line) line.qty++;
+        else state.cart.push({itemId:id, name:item.name, price:item.price, cost:item.cost, qty:1});
+        render();
+      });
+    });
+    document.querySelectorAll('.cart-line').forEach(row=>{
+      const id = row.dataset.id;
+      const line = state.cart.find(c=>c.itemId===id);
+      row.querySelector('[data-act="cinc"]')?.addEventListener('click', ()=>{
+        const item = state.inventory.find(i=>i.id===id);
+        if(line.qty < item.qty) line.qty++;
+        else showToast('No more stock');
+        render();
+      });
+      row.querySelector('[data-act="cdec"]')?.addEventListener('click', ()=>{
+        line.qty--;
+        if(line.qty<=0) state.cart = state.cart.filter(c=>c.itemId!==id);
+        render();
+      });
+      row.querySelector('[data-act="cdel"]')?.addEventListener('click', ()=>{
+        state.cart = state.cart.filter(c=>c.itemId!==id);
+        render();
+      });
+    });
+
+    document.getElementById('paySeg')?.addEventListener('click', e=>{
+      const b = e.target.closest('button[data-pay]');
+      if(!b) return;
+      state.cartPayment.method = b.dataset.pay;
+      render();
+    });
+    document.getElementById('cashTendered')?.addEventListener('input', e=>{
+      state.cartPayment.tendered = e.target.value;
+      const cartTotal = state.cart.reduce((a,c)=>a+c.price*c.qty,0);
+      const change = (parseFloat(e.target.value)||0) - cartTotal;
+      const changeField = e.target.closest('.grid2').querySelector('input[disabled]');
+      if(changeField){
+        changeField.value = peso(Math.max(0,change));
+        changeField.style.color = change<0 ? 'var(--red)' : 'var(--green)';
+      }
+    });
+    document.getElementById('utangCustomerSelect')?.addEventListener('change', e=>{
+      if(e.target.value==='__new__'){
+        const name = prompt('New customer name for Utang:');
+        if(name && name.trim()){
+          const cust = {id:uid(), name:name.trim(), contact:'', balance:0, history:[]};
+          state.utang.push(cust);
+          storageSet('utang', state.utang);
+          state.cartPayment.utangCustomerId = cust.id;
+        } else {
+          state.cartPayment.utangCustomerId = '';
+        }
+      } else {
+        state.cartPayment.utangCustomerId = e.target.value;
+      }
+      render();
+    });
+
+    document.getElementById('checkoutBtn')?.addEventListener('click', async ()=>{
+      const pay = state.cartPayment || {method:'cash'};
+      if(pay.method==='utang' && !pay.utangCustomerId){
+        showToast('⚠️ Pick a customer for Utang first');
+        return;
+      }
+      const ts = new Date().toISOString();
+      const cartTotal = state.cart.reduce((a,c)=>a+c.price*c.qty,0);
+      const paymentLabel = pay.method==='cash' ? 'Cash' : pay.method==='gcash' ? 'GCash' : 'Utang';
+      for(const line of state.cart){
+        const item = state.inventory.find(i=>i.id===line.itemId);
+        if(item) item.qty = Math.max(0, item.qty - line.qty);
+        state.sales.push({
+          id: uid(), itemId: line.itemId, name: line.name,
+          qty: line.qty, price: line.price, cost: line.cost,
+          total: line.price*line.qty, ts, payment: paymentLabel,
+        });
+      }
+      const proms = [storageSet('inventory', state.inventory), storageSet('sales', state.sales)];
+      if(pay.method==='utang'){
+        const cust = state.utang.find(c=>c.id===pay.utangCustomerId);
+        if(cust){
+          cust.balance += cartTotal;
+          cust.history.push({id:uid(), type:'charge', amount:cartTotal, remarks:'Sale on credit', date:ts, addedBy:state.role});
+          proms.push(storageSet('utang', state.utang));
+        }
+      }
+      await Promise.all(proms);
+      state.cart = [];
+      state.cartPayment = {method:'cash', tendered:'', utangCustomerId:''};
+      showToast('✅ Sale recorded!');
+      render();
+    });
+  }
+
+  if(state.tab==='vouchers') bindVoucherEvents();
+  if(state.tab==='log') bindLogEvents();
+
+  if(state.tab==='receipts'){
+    const dz = document.getElementById('dropZone');
+    const fileInput = document.getElementById('receiptFile');
+    dz.addEventListener('click', ()=>fileInput.click());
+    fileInput.addEventListener('change', e=>{
+      if(e.target.files[0]) handleReceiptFile(e.target.files[0]);
+    });
+    document.querySelectorAll('[data-receipt]').forEach(row=>{
+      row.addEventListener('click', ()=>openPastReceipt(row.dataset.receipt));
+    });
+  }
+
+  if(state.tab==='reports'){
+    document.getElementById('rangeSeg').addEventListener('click', e=>{
+      const b = e.target.closest('button[data-r]');
+      if(!b) return;
+      state._reportRange = b.dataset.r;
+      render();
+    });
+    document.getElementById('exportBtn').addEventListener('click', exportBackup);
+  }
+}
+
+/* ---------------- Edit item modal ---------------- */
+function openEditModal(item){
+  const isOwner = state.role==='owner';
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+  <div class="modal-bg" id="editBg">
+    <div class="modal">
+      <div class="modal-head"><h3>Edit Item</h3><button class="icon-btn" id="editClose">${ICONS.close}</button></div>
+      <form id="editForm">
+        <div class="field"><label>Item name</label><input required name="name" value="${esc(item.name)}"></div>
+        <div class="grid2">
+          <div class="field"><label>Category</label><select name="category">${categoryOptionsHtml(item.category)}</select></div>
+          <div class="field"><label>Unit</label><input name="unit" value="${esc(item.unit||'pc')}"></div>
+        </div>
+        <div class="grid3">
+          ${isOwner? `<div class="field"><label>Cost (₱)</label><input required name="cost" type="number" step="0.01" value="${item.cost}"></div>` : ''}
+          <div class="field"><label>Sell price (₱)</label><input required name="price" type="number" step="0.01" value="${item.price}"></div>
+          <div class="field"><label>Qty</label><input required name="qty" type="number" value="${item.qty}"></div>
+        </div>
+        <div class="field"><label>Remarks</label><input name="remarks" value="${esc(item.remarks||'')}" placeholder="e.g. near expiry, damaged pack"></div>
+        <div class="field"><label>Reorder level</label><input name="reorder" type="number" value="${item.reorder}"></div>
+        <button type="submit" class="btn-primary btn-block">Save Changes</button>
+      </form>
+    </div>
+  </div>`;
+  document.getElementById('editClose').onclick=()=>{root.innerHTML='';};
+  document.getElementById('editBg').addEventListener('click', e=>{ if(e.target.id==='editBg') root.innerHTML=''; });
+  document.getElementById('editForm').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    item.name = f.get('name').trim();
+    item.category = f.get('category').trim();
+    item.unit = f.get('unit').trim()||'pc';
+    if(isOwner) item.cost = parseFloat(f.get('cost'))||0;
+    item.price = parseFloat(f.get('price'))||0;
+    item.qty = parseInt(f.get('qty'))||0;
+    item.reorder = parseInt(f.get('reorder'))||0;
+    item.remarks = (f.get('remarks')||'').trim();
+    await storageSet('inventory', state.inventory);
+    root.innerHTML='';
+    showToast('✅ Item updated');
+    render();
+  });
+}
+
+/* ---------------- Backup export ---------------- */
+function exportBackup(){
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    config: state.config,
+    inventory: state.inventory,
+    sales: state.sales,
+    receiptsIndex: state.receiptsIndex,
+    categories: state.categories,
+    expenses: state.expenses,
+    utang: state.utang,
+    gcash: state.gcash,
+    vouchers: state.vouchers,
+    voucherCodes: state.voucherCodes,
+  };
+  const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tindahan-backup-${todayStr()}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  showToast('⬇ Backup downloaded');
+}
+
+function esc(s){
+  return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------------- Init ---------------- */
+async function init(){
+  document.getElementById('main').innerHTML = `<div class="empty" style="padding:60px 10px;"><span class="big">⏳</span>Loading your store…</div>`;
+  try{
+    await loadAll();
+
+    // First-ever run: inventory is empty, so seed it straight from the ledger draft
+    // (cost stays ₱0 per item since the paper sheets only showed retail price — fill it
+    // in later per item for accurate profit numbers).
+    if(state.inventory.length === 0){
+      const seeded = parseBulkImportText(DRAFT_IMPORT_TEXT);
+      if(seeded.length){
+        state.inventory = seeded;
+        await storageSet('inventory', state.inventory);
+        state._draftLoaded = true;
+      }
+    }
+
+    render();
+    setInterval(()=>{ backgroundSync().catch(()=>{}); }, 30000);
+  }catch(err){
+    console.error('App failed to load', err);
+    document.getElementById('main').innerHTML = `
+      <div class="card" style="max-width:420px;margin:30px auto;text-align:center;">
+        <div style="font-size:34px;">⚠️</div>
+        <h2>Something didn't load right</h2>
+        <p style="font-size:12.5px;color:var(--ink-soft);">${esc(err && err.message || 'Unknown error')}</p>
+        <button class="btn-primary btn-block" onclick="location.reload()">Reload</button>
+      </div>`;
+  }
+  document.getElementById('switchUserBtn').addEventListener('click', ()=>{
+    state.role = null;
+    state.gateStep = 'pick';
+    state.gateError = '';
+    state.cart = [];
+    render();
+  });
+  document.getElementById('storeNameInput').addEventListener('change', async e=>{
+    if(state.role!=='owner'){ e.target.value = state.config.name||'Tindahan'; return; }
+    state.config.name = e.target.value || 'Tindahan';
+    await storageSet('store-config', state.config);
+  });
+}
+init();
+</script>
+</body>
+</html>
