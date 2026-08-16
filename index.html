@@ -277,7 +277,8 @@
      guarantees that order regardless of load timing. -->
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js';
-  import { getFirestore, doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js';
+  import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc }
+    from 'https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js';
 
   const firebaseConfig = {
     apiKey: "AIzaSyCUOCbyhmN-zB0NX3zEIC0joBzNTXy4IL4",
@@ -289,7 +290,9 @@
   };
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  const db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
   const COLLECTION = 'tindahan-store';
 
   // Same shape as the rest of the app already expects: get/set a JSON string by key.
@@ -509,10 +512,12 @@ async function storageGet(key, fallback){
 async function storageSet(key, value){
   try{
     await window.fsSet(key, JSON.stringify(value));
+    state._saveError = '';
     return true;
   }catch(e){
     console.error('storage set failed', key, e);
-    showToast('⚠️ Could not save — try again');
+    state._saveError = `Your last change to "${key}" did NOT save (${e.message || 'unknown error'}). It only exists on this device right now — don't count on it until this warning clears.`;
+    showToast('⚠️ Could not save — see warning banner');
     return false;
   }
 }
@@ -637,13 +642,26 @@ function render(){
   renderNav();
   updateHeader();
   const main = document.getElementById('main');
-  if(state.tab==='dashboard') main.innerHTML = viewDashboard();
-  if(state.tab==='inventory') main.innerHTML = viewInventory();
-  if(state.tab==='sell') main.innerHTML = viewSell();
-  if(state.tab==='vouchers') main.innerHTML = viewVouchers();
-  if(state.tab==='log') main.innerHTML = viewLog();
-  if(state.tab==='receipts') main.innerHTML = viewReceipts();
-  if(state.tab==='reports') main.innerHTML = viewReports();
+  let html = '';
+  if(state._saveError){
+    html += `<div class="card" style="border-color:var(--red);background:#FDECEC;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div>
+          <div style="font-weight:800;color:var(--red);margin-bottom:4px;">⚠️ Save failed</div>
+          <div style="font-size:12.5px;">${esc(state._saveError)}</div>
+        </div>
+        <button id="dismissSaveError" class="icon-btn" style="color:var(--red);flex-shrink:0;">${ICONS.close}</button>
+      </div>
+    </div>`;
+  }
+  if(state.tab==='dashboard') html += viewDashboard();
+  if(state.tab==='inventory') html += viewInventory();
+  if(state.tab==='sell') html += viewSell();
+  if(state.tab==='vouchers') html += viewVouchers();
+  if(state.tab==='log') html += viewLog();
+  if(state.tab==='receipts') html += viewReceipts();
+  if(state.tab==='reports') html += viewReports();
+  main.innerHTML = html;
   bindTabEvents();
 }
 
@@ -1818,6 +1836,11 @@ function viewReports(){
 
 /* ---------------- Event binding per tab ---------------- */
 function bindTabEvents(){
+  document.getElementById('dismissSaveError')?.addEventListener('click', ()=>{
+    state._saveError = '';
+    render();
+  });
+
   document.getElementById('dismissInstallHint')?.addEventListener('click', async ()=>{
     state.showInstallHint = false;
     await deviceSet('install-hint-dismissed', true);
