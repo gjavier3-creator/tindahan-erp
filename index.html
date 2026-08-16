@@ -702,10 +702,44 @@ function viewRoleGate(){
     <button id="pickOwner" class="btn-primary btn-block" style="margin-bottom:10px;padding:14px;">🧑‍💼 Owner${hasPin?'':' (set up PIN)'}</button>
     <button id="pickEmployee" class="btn-yellow btn-block" style="padding:14px;">🧑‍🔧 Employee</button>
     <p style="font-size:11px;color:var(--ink-soft);margin-top:14px;">Note: this PIN keeps things tidy day-to-day, but isn't strong security — anyone determined with browser access could still reach the raw data. Don't use it to hide anything sensitive from someone who has physical access to the device.</p>
+  </div>
+  <div class="card" style="max-width:420px;margin:0 auto;">
+    <h2 style="margin-bottom:8px;">🔧 Cloud Connection Test</h2>
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">If stock changes aren't sticking, run this — it tries a real write and read against your database and shows the exact result, pass or fail.</p>
+    <button id="connTestBtn" class="btn-secondary btn-block">Run Connection Test</button>
+    <div id="connTestResult" style="margin-top:10px;font-size:12.5px;"></div>
   </div>`;
 }
 
 function bindGateEvents(){
+  document.getElementById('connTestBtn')?.addEventListener('click', async ()=>{
+    const out = document.getElementById('connTestResult');
+    out.innerHTML = '⏳ Testing…';
+    const testKey = 'connection-test';
+    const testValue = { pingedAt: new Date().toISOString(), from: navigator.userAgent.slice(0,60) };
+    try{
+      if(typeof window.fsSet !== 'function' || typeof window.fsGet !== 'function'){
+        throw new Error('Firebase bootstrap script never loaded (window.fsGet/fsSet missing) — check that the module scripts at the top of the file weren\'t stripped or blocked.');
+      }
+      const t0 = Date.now();
+      await window.fsSet(testKey, JSON.stringify(testValue));
+      const readBack = await window.fsGet(testKey);
+      const ms = Date.now() - t0;
+      if(readBack === undefined){
+        out.innerHTML = `<div style="color:var(--red);font-weight:700;">❌ Wrote OK, but read-back returned nothing.</div><div style="margin-top:4px;">This usually means the write landed in a different database/collection than the read is checking, or rules allow write but not read.</div>`;
+      } else {
+        const parsed = JSON.parse(readBack);
+        out.innerHTML = `<div style="color:var(--green);font-weight:700;">✅ Connected — write and read both succeeded (${ms}ms).</div>
+          <div style="margin-top:4px;color:var(--ink-soft);">Wrote and read back: <code>${esc(JSON.stringify(parsed))}</code></div>
+          <div style="margin-top:4px;color:var(--ink-soft);">Check Firestore console for a document called "${testKey}" inside tindahan-store — if you see it there with this same data, your database and rules are correct, and the earlier problem was something else (like an old cached page). If Firestore still looks empty after this shows ✅, you're very likely looking at the wrong database/project in the console.</div>`;
+      }
+    }catch(e){
+      out.innerHTML = `<div style="color:var(--red);font-weight:700;">❌ Failed: ${esc(e.message || String(e))}</div>
+        <div style="margin-top:4px;color:var(--ink-soft);">This is the exact error from Firebase — screenshot this whole box.</div>`;
+      console.error('Connection test failed', e);
+    }
+  });
+
   document.getElementById('pickEmployee')?.addEventListener('click', ()=>{
     state.role = 'employee';
     state.tab = 'sell';
