@@ -468,6 +468,7 @@ let state = {
   gcash: [],        // [{id,date,type:'cash-in'|'cash-out',amount,fee,remarks,addedBy}]
   vouchers: [],     // [{id,name,cost,price}]  -- voucher TYPES only; stock comes from voucherCodes
   voucherCodes: [], // [{id,typeId,code,status:'unused'|'used',expiryDate,soldTs}]
+  stockAdjustments: [], // [{id,itemId,itemName,oldQty,newQty,reason,changedBy,date}] -- audit trail for manual qty corrections
   cart: [],
   tab: 'dashboard',
   _invSelected: new Set(),
@@ -526,7 +527,7 @@ async function deviceGet(key, fallback){ return storageGet('device-'+key, fallba
 async function deviceSet(key, value){ return storageSet('device-'+key, value); }
 
 async function loadAll(){
-  const [config, inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes] = await Promise.all([
+  const [config, inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes, stockAdjustments] = await Promise.all([
     storageGet('store-config', {name:'Tindahan', ownerPin:'', gcashFloatStart:0}),
     storageGet('inventory', []),
     storageGet('sales', []),
@@ -537,6 +538,7 @@ async function loadAll(){
     storageGet('gcash', []),
     storageGet('vouchers', []),
     storageGet('voucher-codes', []),
+    storageGet('stock-adjustments', []),
   ]);
   state.config = config || {name:'Tindahan', ownerPin:'', gcashFloatStart:0};
   state.inventory = inventory;
@@ -547,6 +549,7 @@ async function loadAll(){
   state.gcash = gcash;
   state.vouchers = vouchers;
   state.voucherCodes = voucherCodes;
+  state.stockAdjustments = stockAdjustments;
   if(categories && categories.length){
     state.categories = categories;
   } else {
@@ -564,6 +567,19 @@ async function loadAll(){
   state.showInstallHint = !isStandalone && !dismissed;
 }
 
+// Logs every manual stock quantity correction (not sales, not checkout — those are
+// already tracked via the sales list). Silent for quick +/- taps, but always recorded,
+// so "why does Hansel say 7" is always answerable later.
+async function logStockAdjustment(item, oldQty, newQty, reason){
+  if(oldQty === newQty) return;
+  state.stockAdjustments.push({
+    id: uid(), itemId: item.id, itemName: item.name,
+    oldQty, newQty, reason: (reason||'').trim(),
+    changedBy: state.role, date: new Date().toISOString(),
+  });
+  await storageSet('stock-adjustments', state.stockAdjustments);
+}
+
 // Pulls fresh shared data in the background so a remote owner (or a second device)
 // sees near-live updates without a manual reload. Skips quietly while a modal is
 // open or the person is mid-typing, so it never yanks away unsaved input.
@@ -573,7 +589,7 @@ async function backgroundSync(){
   const typing = document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
   if(modalOpen || typing) return;
   try{
-    const [inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes, config] = await Promise.all([
+    const [inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes, stockAdjustments, config] = await Promise.all([
       storageGet('inventory', state.inventory),
       storageGet('sales', state.sales),
       storageGet('receipts-index', state.receiptsIndex),
@@ -583,11 +599,13 @@ async function backgroundSync(){
       storageGet('gcash', state.gcash),
       storageGet('vouchers', state.vouchers),
       storageGet('voucher-codes', state.voucherCodes),
+      storageGet('stock-adjustments', state.stockAdjustments),
       storageGet('store-config', state.config),
     ]);
     state.inventory=inventory; state.sales=sales; state.receiptsIndex=receiptsIndex;
     state.categories=categories; state.expenses=expenses; state.utang=utang;
-    state.gcash=gcash; state.vouchers=vouchers; state.voucherCodes=voucherCodes; state.config=config;
+    state.gcash=gcash; state.vouchers=vouchers; state.voucherCodes=voucherCodes;
+    state.stockAdjustments=stockAdjustments; state.config=config;
     state.lastSync = new Date();
     render();
   }catch(e){ /* stay silent — next tick will retry */ }
@@ -1351,12 +1369,37 @@ function viewLog(){
       <button data-seg="utang" class="${seg==='utang'?'active':''}">🤝 Utang</button>
       <button data-seg="gastos" class="${seg==='gastos'?'active':''}">💸 Gastos</button>
       <button data-seg="gcash" class="${seg==='gcash'?'active':''}">💳 GCash</button>
+      ${isOwner? `<button data-seg="stockadj" class="${seg==='stockadj'?'active':''}">📐 Stock Corrections</button>` : ''}
     </div>
   </div>
   ${seg==='transactions'? viewTransactionsSection()
     : seg==='utang'? viewUtangSection(isOwner)
     : seg==='gastos'? viewGastosSection(isOwner)
+    : seg==='stockadj' && isOwner? viewStockAdjustmentsSection()
     : viewGcashSection(isOwner)}
+  `;
+}
+
+function viewStockAdjustmentsSection(){
+  const recent = [...state.stockAdjustments].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100);
+  return `
+  <div class="card">
+    <h2>📐 Stock Correction History</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Every manual quantity change — quick +/- taps and Edit Item corrections — is recorded here automatically, so you can always trace back why a number changed.</p>
+  </div>
+  <div class="card">
+    ${recent.length? recent.map(a=>`
+      <div class="ledger-row">
+        <div>
+          <strong>${esc(a.itemName)}</strong>
+          <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">${new Date(a.date).toLocaleString('en-PH',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})} · by ${a.changedBy||'—'}</div>
+          ${a.reason? `<div class="meta" style="font-style:italic;">"${esc(a.reason)}"</div>` : ''}
+        </div>
+        <div class="mono" style="font-weight:800;text-align:right;">
+          <span style="color:var(--ink-soft);">${a.oldQty}</span> → <span style="color:${a.newQty<a.oldQty?'var(--red)':'var(--green)'};">${a.newQty}</span>
+        </div>
+      </div>`).join('') : `<div class="empty"><span class="big">📐</span>No manual corrections yet — this fills in automatically whenever a quantity is changed by hand.</div>`}
+  </div>
   `;
 }
 
@@ -1412,8 +1455,10 @@ function viewUtangSection(isOwner){
   </div>
   <div class="card">
     <h2>Customers (Total owed: ${peso(total)})</h2>
-    ${state.utang.length? state.utang.map(c=>`
-      <div class="ledger-row" style="align-items:flex-start;">
+    ${state.utang.length? state.utang.map(c=>{
+      const expanded = state._expandedUtangCust === c.id;
+      return `
+      <div class="ledger-row" style="align-items:flex-start;flex-wrap:wrap;">
         <div style="flex:1;">
           <strong>${esc(c.name)}</strong> ${c.contact? `<span class="meta" style="font-size:11.5px;color:var(--ink-soft);">· ${esc(c.contact)}</span>`:''}
           <div class="mono" style="font-weight:800;color:${c.balance>0?'var(--red)':'var(--green)'};margin-top:2px;">${peso(c.balance)} owed</div>
@@ -1424,8 +1469,21 @@ function viewUtangSection(isOwner){
           ${isOwner? `<button class="icon-btn" data-utangedit="${c.id}" style="color:var(--ink-soft);">${ICONS.edit}</button>` : ''}
           ${isOwner? `<button class="icon-btn" data-utangdel="${c.id}" style="color:var(--red);">${ICONS.trash}</button>` : ''}
         </div>
+        ${isOwner && c.history.length? `<button data-utanghistory="${c.id}" class="btn-secondary" style="margin-top:6px;padding:5px 10px;font-size:11.5px;">${expanded?'Hide':'View'} history (${c.history.length})</button>` : ''}
+        ${expanded ? `
+        <div style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--paper);max-height:220px;overflow-y:auto;">
+          ${[...c.history].sort((a,b)=>b.date.localeCompare(a.date)).map(h=>`
+            <div class="ledger-row" style="padding:6px 0;">
+              <div>
+                <span style="font-weight:700;color:${h.type==='charge'?'var(--red)':'var(--green)'};">${h.type==='charge'?'+ Borrowed':'− Paid'} ${peso(h.amount)}</span>
+                <div class="meta" style="font-size:11px;color:var(--ink-soft);">${new Date(h.date).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} ${h.remarks?'· '+esc(h.remarks):''}</div>
+              </div>
+              <button data-utanghistdel="${c.id}|${h.id}" class="icon-btn" style="color:var(--red);" title="Remove this entry">${ICONS.close}</button>
+            </div>
+          `).join('')}
+        </div>` : ''}
       </div>
-    `).join('') : `<div class="empty"><span class="big">🤝</span>No utang customers yet.</div>`}
+    `;}).join('') : `<div class="empty"><span class="big">🤝</span>No utang customers yet.</div>`}
   </div>`;
 }
 
@@ -1449,6 +1507,12 @@ function viewGastosSection(isOwner){
         <div class="field"><label>Amount (₱)</label><input name="amount" type="number" step="0.01" required></div>
       </div>
       <div class="field"><label>Remarks</label><input name="remarks" placeholder="e.g. softdrinks delivery, Aug 15"></div>
+      <div class="field">
+        <label>Receipt photo (optional)</label>
+        <button type="button" id="expenseReceiptBtn" class="btn-secondary btn-block" style="text-align:left;">${ICONS.camera} <span id="expenseReceiptLabel">Attach a photo</span></button>
+        <input type="file" id="expenseReceiptFile" accept="image/*" capture="environment" style="display:none;">
+        <img id="expenseReceiptPreview" style="display:none;max-width:100%;max-height:140px;border-radius:8px;margin-top:8px;border:1px solid var(--line);">
+      </div>
       <button type="submit" class="btn-primary btn-block">${ICONS.plus} Log Expense</button>
     </form>
   </div>
@@ -1459,7 +1523,10 @@ function viewGastosSection(isOwner){
         <div><strong>${esc(e.category)}</strong>
           <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">${new Date(e.date).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} ${e.remarks? '· '+esc(e.remarks):''}</div>
         </div>
-        <span class="mono" style="font-weight:800;">${peso(e.amount)}</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${e.hasReceipt? `<button class="icon-btn" data-viewexpensereceipt="${e.id}" style="color:var(--green);" title="View receipt photo">${ICONS.camera}</button>` : ''}
+          <span class="mono" style="font-weight:800;">${peso(e.amount)}</span>
+        </div>
       </div>`).join('') : `<div class="empty"><span class="big">🧾</span>No expenses logged yet.</div>`}
   </div>`;
 }
@@ -1567,6 +1634,29 @@ function bindLogEvents(){
       openUtangEditModal(cust);
     });
   });
+  document.querySelectorAll('[data-utanghistory]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.dataset.utanghistory;
+      state._expandedUtangCust = state._expandedUtangCust===id ? '' : id;
+      render();
+    });
+  });
+  document.querySelectorAll('[data-utanghistdel]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const [custId, histId] = btn.dataset.utanghistdel.split('|');
+      const cust = state.utang.find(c=>c.id===custId);
+      if(!cust) return;
+      const entry = cust.history.find(h=>h.id===histId);
+      if(!entry) return;
+      if(!confirm(`Remove this ${entry.type==='charge'?'borrow':'payment'} entry of ${peso(entry.amount)}? This will also adjust their balance back.`)) return;
+      cust.balance += entry.type==='charge' ? -entry.amount : entry.amount;
+      cust.balance = Math.max(0, cust.balance);
+      cust.history = cust.history.filter(h=>h.id!==histId);
+      await storageSet('utang', state.utang);
+      showToast('🗑️ Entry removed, balance adjusted');
+      render();
+    });
+  });
   document.querySelectorAll('[data-utangdel]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const cust = state.utang.find(c=>c.id===btn.dataset.utangdel);
@@ -1608,15 +1698,56 @@ function bindLogEvents(){
     });
   });
 
+  document.getElementById('expenseReceiptBtn')?.addEventListener('click', ()=>{
+    document.getElementById('expenseReceiptFile').click();
+  });
+  document.getElementById('expenseReceiptFile')?.addEventListener('change', e=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    document.getElementById('expenseReceiptLabel').textContent = file.name;
+    const preview = document.getElementById('expenseReceiptPreview');
+    const reader = new FileReader();
+    reader.onload = ()=>{ preview.src = reader.result; preview.style.display=''; };
+    reader.readAsDataURL(file);
+  });
   document.getElementById('addExpenseForm')?.addEventListener('submit', async e=>{
     e.preventDefault();
     const f = new FormData(e.target);
     const amount = parseFloat(f.get('amount'))||0;
     if(amount<=0) return;
-    state.expenses.push({id:uid(), date:new Date().toISOString(), category:f.get('category'), amount, remarks:(f.get('remarks')||'').trim(), addedBy:state.role});
-    await storageSet('expenses', state.expenses);
-    showToast('✅ Expense logged');
+    const expenseId = uid();
+    const fileInput = document.getElementById('expenseReceiptFile');
+    const receiptFile = fileInput && fileInput.files[0];
+    const expense = {
+      id: expenseId, date:new Date().toISOString(), category:f.get('category'),
+      amount, remarks:(f.get('remarks')||'').trim(), addedBy:state.role,
+      hasReceipt: !!receiptFile,
+    };
+    state.expenses.push(expense);
+    const saves = [storageSet('expenses', state.expenses)];
+    if(receiptFile){
+      const dataUrl = await fileToCompressedDataUrl(receiptFile, 900, 0.65);
+      saves.push(storageSet('expense-receipt:'+expenseId, {image: dataUrl}));
+    }
+    await Promise.all(saves);
+    showToast('✅ Expense logged' + (receiptFile? ' with receipt photo' : ''));
     render();
+  });
+  document.querySelectorAll('[data-viewexpensereceipt]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const rec = await storageGet('expense-receipt:'+btn.dataset.viewexpensereceipt, null);
+      if(!rec){ showToast('Receipt photo not found'); return; }
+      const root = document.getElementById('modalRoot');
+      root.innerHTML = `
+      <div class="modal-bg" id="expReceiptBg">
+        <div class="modal">
+          <div class="modal-head"><h3>Receipt Photo</h3><button class="icon-btn" id="expReceiptClose">${ICONS.close}</button></div>
+          <img src="${rec.image}" style="max-width:100%;border-radius:10px;border:1px solid var(--line);">
+        </div>
+      </div>`;
+      document.getElementById('expReceiptClose').onclick=()=>{root.innerHTML='';};
+      document.getElementById('expReceiptBg').addEventListener('click', e=>{ if(e.target.id==='expReceiptBg') root.innerHTML=''; });
+    });
   });
 
   document.getElementById('gcashAmount')?.addEventListener('input', e=>{
@@ -2088,10 +2219,18 @@ function bindTabEvents(){
       const id = row.dataset.id;
       const item = state.inventory.find(i=>i.id===id);
       row.querySelector('[data-act="inc"]').addEventListener('click', async ()=>{
-        item.qty++; await storageSet('inventory', state.inventory); render();
+        const oldQty = item.qty;
+        item.qty++;
+        await storageSet('inventory', state.inventory);
+        await logStockAdjustment(item, oldQty, item.qty, 'Quick +1');
+        render();
       });
       row.querySelector('[data-act="dec"]').addEventListener('click', async ()=>{
-        item.qty = Math.max(0,item.qty-1); await storageSet('inventory', state.inventory); render();
+        const oldQty = item.qty;
+        item.qty = Math.max(0,item.qty-1);
+        await storageSet('inventory', state.inventory);
+        await logStockAdjustment(item, oldQty, item.qty, 'Quick -1');
+        render();
       });
       row.querySelector('[data-act="del"]').addEventListener('click', async ()=>{
         if(!confirm(`Remove "${item.name}" from inventory?`)) return;
@@ -2328,7 +2467,11 @@ function openEditModal(item){
         <div class="grid3">
           ${isOwner? `<div class="field"><label>Cost (₱)</label><input required name="cost" type="number" step="0.01" value="${item.cost}"></div>` : ''}
           <div class="field"><label>Sell price (₱)</label><input required name="price" type="number" step="0.01" value="${item.price}"></div>
-          <div class="field"><label>Qty</label><input required name="qty" type="number" value="${item.qty}"></div>
+          <div class="field"><label>Qty</label><input required name="qty" type="number" id="editQtyInput" value="${item.qty}"></div>
+        </div>
+        <div class="field" id="qtyReasonField" style="display:none;">
+          <label>Reason for the quantity change</label>
+          <input name="qtyReason" placeholder="e.g. Wrong count from ledger import, actual physical count is 1">
         </div>
         <div class="field"><label>Remarks</label><input name="remarks" value="${esc(item.remarks||'')}" placeholder="e.g. near expiry, damaged pack"></div>
         <div class="field"><label>Reorder level</label><input name="reorder" type="number" value="${item.reorder}"></div>
@@ -2338,18 +2481,25 @@ function openEditModal(item){
   </div>`;
   document.getElementById('editClose').onclick=()=>{root.innerHTML='';};
   document.getElementById('editBg').addEventListener('click', e=>{ if(e.target.id==='editBg') root.innerHTML=''; });
+  document.getElementById('editQtyInput').addEventListener('input', e=>{
+    const changed = parseInt(e.target.value) !== item.qty;
+    document.getElementById('qtyReasonField').style.display = changed ? '' : 'none';
+  });
   document.getElementById('editForm').addEventListener('submit', async e=>{
     e.preventDefault();
     const f = new FormData(e.target);
+    const oldQty = item.qty;
+    const newQty = parseInt(f.get('qty'))||0;
     item.name = f.get('name').trim();
     item.category = f.get('category').trim();
     item.unit = f.get('unit').trim()||'pc';
     if(isOwner) item.cost = parseFloat(f.get('cost'))||0;
     item.price = parseFloat(f.get('price'))||0;
-    item.qty = parseInt(f.get('qty'))||0;
+    item.qty = newQty;
     item.reorder = parseInt(f.get('reorder'))||0;
     item.remarks = (f.get('remarks')||'').trim();
     await storageSet('inventory', state.inventory);
+    if(newQty !== oldQty) await logStockAdjustment(item, oldQty, newQty, f.get('qtyReason') || 'Manual correction (no reason given)');
     root.innerHTML='';
     showToast('✅ Item updated');
     render();
