@@ -1421,6 +1421,7 @@ function viewUtangSection(isOwner){
         <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
           <button class="btn-secondary" data-utangborrow="${c.id}" style="padding:6px 10px;font-size:12px;">+ Borrow</button>
           <button class="btn-primary" data-utangpay="${c.id}" style="padding:6px 10px;font-size:12px;">Payment</button>
+          ${isOwner? `<button class="icon-btn" data-utangedit="${c.id}" style="color:var(--ink-soft);">${ICONS.edit}</button>` : ''}
           ${isOwner? `<button class="icon-btn" data-utangdel="${c.id}" style="color:var(--red);">${ICONS.trash}</button>` : ''}
         </div>
       </div>
@@ -1558,6 +1559,13 @@ function bindLogEvents(){
     await storageSet('utang', state.utang);
     showToast('✅ Customer added');
     render();
+  });
+  document.querySelectorAll('[data-utangedit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const cust = state.utang.find(c=>c.id===btn.dataset.utangedit);
+      if(!cust) return;
+      openUtangEditModal(cust);
+    });
   });
   document.querySelectorAll('[data-utangdel]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
@@ -2267,6 +2275,43 @@ function bindTabEvents(){
 }
 
 /* ---------------- Edit item modal ---------------- */
+/* ---------------- Edit utang customer modal ---------------- */
+function openUtangEditModal(cust){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+  <div class="modal-bg" id="utangEditBg">
+    <div class="modal">
+      <div class="modal-head"><h3>Edit Customer</h3><button class="icon-btn" id="utangEditClose">${ICONS.close}</button></div>
+      <form id="utangEditForm">
+        <div class="field"><label>Customer name</label><input required name="name" value="${esc(cust.name)}"></div>
+        <div class="field"><label>Contact (optional)</label><input name="contact" value="${esc(cust.contact||'')}" placeholder="phone number"></div>
+        <div class="field"><label>Balance owed (₱)</label><input name="balance" type="number" step="0.01" value="${cust.balance}"></div>
+        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 10px;">Only adjust the balance directly for corrections — normal borrowing/payment should go through the + Borrow / Payment buttons so there's a record of it.</p>
+        <button type="submit" class="btn-primary btn-block">Save Changes</button>
+      </form>
+    </div>
+  </div>`;
+  document.getElementById('utangEditClose').onclick=()=>{root.innerHTML='';};
+  document.getElementById('utangEditBg').addEventListener('click', e=>{ if(e.target.id==='utangEditBg') root.innerHTML=''; });
+  document.getElementById('utangEditForm').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const newName = f.get('name').trim();
+    if(!newName) return;
+    const newBalance = parseFloat(f.get('balance'));
+    if(newBalance !== cust.balance && !isNaN(newBalance)){
+      cust.history.push({id:uid(), type: newBalance>cust.balance?'charge':'payment', amount: Math.abs(newBalance-cust.balance), remarks:'Manual correction', date:new Date().toISOString(), addedBy:state.role});
+    }
+    cust.name = newName;
+    cust.contact = (f.get('contact')||'').trim();
+    cust.balance = isNaN(newBalance) ? cust.balance : newBalance;
+    await storageSet('utang', state.utang);
+    root.innerHTML='';
+    showToast('✅ Customer updated');
+    render();
+  });
+}
+
 function openEditModal(item){
   const isOwner = state.role==='owner';
   const root = document.getElementById('modalRoot');
