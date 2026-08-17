@@ -1408,6 +1408,7 @@ function viewTransactionsSection(){
   const q = (state._txSearch||'').toLowerCase();
   const now = new Date();
   const cutoff = range==='all' ? null : new Date(now.getTime() - Number(range)*86400000);
+  const isOwner = state.role==='owner';
   const filtered = state.sales
     .filter(s=> !cutoff || new Date(s.ts) >= cutoff)
     .filter(s=> !q || s.name.toLowerCase().includes(q))
@@ -1428,15 +1429,20 @@ function viewTransactionsSection(){
       <div style="font-size:12.5px;color:var(--ink-soft);">${filtered.length} transaction(s) · total ${peso(total)}</div>
       <button id="exportTxExcelBtn" class="btn-secondary" style="padding:7px 12px;font-size:12.5px;">⬇ Export Excel</button>
     </div>
+    ${isOwner? `<p style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;">Wrong quantity on a sale? Tap ✏️ on that row to fix it — stock adjusts automatically to match.</p>` : ''}
   </div>
   <div class="card">
     ${filtered.length? filtered.map(s=>`
-      <div class="ledger-row">
+      <div class="ledger-row" data-saleid="${s.id}">
         <div>
           <strong>${esc(s.name)}</strong> <span class="meta" style="color:var(--ink-soft);font-size:12px">×${s.qty}</span>
           <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">${new Date(s.ts).toLocaleString('en-PH',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})} · ${esc(s.payment||'Cash')}</div>
         </div>
-        <div class="mono" style="font-weight:800;">${peso(s.total)}</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="mono" style="font-weight:800;">${peso(s.total)}</span>
+          ${isOwner? `<button class="icon-btn" data-saleedit="${s.id}" style="color:var(--ink-soft);">${ICONS.edit}</button>` : ''}
+          ${isOwner? `<button class="icon-btn" data-saledel="${s.id}" style="color:var(--red);">${ICONS.trash}</button>` : ''}
+        </div>
       </div>`).join('') : `<div class="empty"><span class="big">🧾</span>No transactions in this range yet.</div>`}
   </div>
   `;
@@ -1615,6 +1621,43 @@ function bindLogEvents(){
         Payment: s.payment || 'Cash',
       }));
     exportRowsToExcel(rows, `transactions-${todayStr()}`, 'Transactions');
+  });
+
+  document.querySelectorAll('[data-saleedit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const sale = state.sales.find(s=>s.id===btn.dataset.saleedit);
+      if(!sale) return;
+      openSaleEditModal(sale);
+    });
+  });
+  document.querySelectorAll('[data-saledel]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const sale = state.sales.find(s=>s.id===btn.dataset.saledel);
+      if(!sale) return;
+      let warnExtra = sale.payment==='Utang' ? ' Note: this was paid via Utang — the customer\'s balance will NOT auto-adjust; fix that separately in Log → Utang if needed.' : '';
+      if(!confirm(`Delete this transaction — ${sale.name} ×${sale.qty}, ${peso(sale.total)}? Stock will be restored automatically.${warnExtra}`)) return;
+
+      if(sale.isVoucher && sale.voucherCode){
+        const code = state.voucherCodes.find(c=>c.code===sale.voucherCode);
+        if(code){
+          code.status = 'unused';
+          code.soldTs = '';
+          await storageSet('voucher-codes', state.voucherCodes);
+        }
+      } else {
+        const item = state.inventory.find(i=>i.id===sale.itemId);
+        if(item){
+          const oldQty = item.qty;
+          item.qty += sale.qty;
+          await storageSet('inventory', state.inventory);
+          await logStockAdjustment(item, oldQty, item.qty, `Sale deleted: ${sale.name} ×${sale.qty} — stock restored`);
+        }
+      }
+      state.sales = state.sales.filter(s=>s.id!==sale.id);
+      await storageSet('sales', state.sales);
+      showToast('🗑️ Transaction deleted, stock restored');
+      render();
+    });
   });
 
   document.getElementById('addUtangCustForm')?.addEventListener('submit', async e=>{
@@ -2415,6 +2458,58 @@ function bindTabEvents(){
 
 /* ---------------- Edit item modal ---------------- */
 /* ---------------- Edit utang customer modal ---------------- */
+/* ---------------- Edit / delete sale (transaction) ---------------- */
+function openSaleEditModal(sale){
+  const root = document.getElementById('modalRoot');
+  const isVoucher = !!sale.isVoucher;
+  root.innerHTML = `
+  <div class="modal-bg" id="saleEditBg">
+    <div class="modal">
+      <div class="modal-head"><h3>Edit Transaction</h3><button class="icon-btn" id="saleEditClose">${ICONS.close}</button></div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">${esc(sale.name)} · ${new Date(sale.ts).toLocaleString('en-PH')}</p>
+      <form id="saleEditForm">
+        <div class="grid2">
+          <div class="field"><label>Qty${isVoucher?' (locked — 1 code per voucher sale)':''}</label><input required name="qty" type="number" min="1" value="${sale.qty}" ${isVoucher?'disabled':''}></div>
+          <div class="field"><label>Unit Price (₱)</label><input required name="price" type="number" step="0.01" value="${sale.price}"></div>
+        </div>
+        <div class="field"><label>Reason for correction</label><input name="reason" placeholder="e.g. Wrong quantity encoded, should be 2 not 5" required></div>
+        ${sale.payment==='Utang'? `<p style="font-size:11.5px;color:var(--red);">⚠️ This sale was paid via Utang. Editing it here does NOT adjust the customer's balance — go to Log → Utang to correct that separately.</p>` : ''}
+        <button type="submit" class="btn-primary btn-block">Save Correction</button>
+      </form>
+    </div>
+  </div>`;
+  document.getElementById('saleEditClose').onclick=()=>{root.innerHTML='';};
+  document.getElementById('saleEditBg').addEventListener('click', e=>{ if(e.target.id==='saleEditBg') root.innerHTML=''; });
+  document.getElementById('saleEditForm').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const newQty = isVoucher ? sale.qty : (parseInt(f.get('qty'))||sale.qty);
+    const newPrice = parseFloat(f.get('price'))||sale.price;
+    const reason = f.get('reason').trim();
+    const oldQty = sale.qty;
+
+    // Reconcile stock for the quantity difference (regular items only — voucher qty is locked)
+    if(!isVoucher && newQty !== oldQty){
+      const item = state.inventory.find(i=>i.id===sale.itemId);
+      if(item){
+        const delta = newQty - oldQty; // more sold => less stock; less sold => more stock back
+        const itemOldQty = item.qty;
+        item.qty = Math.max(0, item.qty - delta);
+        await storageSet('inventory', state.inventory);
+        await logStockAdjustment(item, itemOldQty, item.qty, `Sale correction: ${sale.name} qty ${oldQty}→${newQty} (${reason})`);
+      }
+    }
+
+    sale.qty = newQty;
+    sale.price = newPrice;
+    sale.total = newQty * newPrice;
+    await storageSet('sales', state.sales);
+    root.innerHTML='';
+    showToast('✅ Transaction corrected');
+    render();
+  });
+}
+
 function openUtangEditModal(cust){
   const root = document.getElementById('modalRoot');
   root.innerHTML = `
