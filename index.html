@@ -486,6 +486,77 @@ function peso(n){
   return '₱' + n.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+// Shared date-range picker used by Dashboard, Reports, and Log > Transactions.
+// rangeKey: 'today' | '7' | '30' | 'all' | 'custom'
+function getDateCutoff(rangeKey, customFrom, customTo){
+  const now = new Date();
+  if(rangeKey === 'custom'){
+    const start = customFrom ? new Date(customFrom+'T00:00:00') : null;
+    const end = customTo ? new Date(customTo+'T23:59:59') : null;
+    return {start, end};
+  }
+  if(rangeKey === 'all') return {start:null, end:null};
+  if(rangeKey === 'today'){
+    const start = new Date(); start.setHours(0,0,0,0);
+    return {start, end:null};
+  }
+  const days = Number(rangeKey)||7;
+  return {start: new Date(now.getTime() - days*86400000), end:null};
+}
+function inDateRange(ts, cutoff){
+  const t = new Date(ts);
+  if(cutoff.start && t < cutoff.start) return false;
+  if(cutoff.end && t > cutoff.end) return false;
+  return true;
+}
+function dateRangeLabel(rangeKey, customFrom, customTo){
+  if(rangeKey==='today') return 'Today';
+  if(rangeKey==='7') return 'Last 7 days';
+  if(rangeKey==='30') return 'Last 30 days';
+  if(rangeKey==='all') return 'All time';
+  if(rangeKey==='custom'){
+    if(customFrom && customTo) return `${customFrom} to ${customTo}`;
+    if(customFrom) return `From ${customFrom}`;
+    if(customTo) return `Until ${customTo}`;
+    return 'Custom range';
+  }
+  return '';
+}
+function dateRangeControlHtml(prefix, rangeVal, customFrom, customTo, includeToday){
+  return `
+  <div class="segmented" id="${prefix}RangeSeg">
+    ${includeToday? `<button data-r="today" class="${rangeVal==='today'?'active':''}">Today</button>` : ''}
+    <button data-r="7" class="${rangeVal==='7'?'active':''}">7 days</button>
+    <button data-r="30" class="${rangeVal==='30'?'active':''}">30 days</button>
+    <button data-r="all" class="${rangeVal==='all'?'active':''}">All</button>
+    <button data-r="custom" class="${rangeVal==='custom'?'active':''}">Custom</button>
+  </div>
+  ${rangeVal==='custom' ? `
+  <div class="grid2" style="margin-top:10px;">
+    <div class="field"><label>From</label><input type="date" id="${prefix}CustomFrom" value="${customFrom||''}" max="${todayStr()}"></div>
+    <div class="field"><label>To</label><input type="date" id="${prefix}CustomTo" value="${customTo||''}" max="${todayStr()}"></div>
+  </div>
+  <button id="${prefix}CustomApply" class="btn-secondary btn-block" style="margin-top:8px;">Apply Custom Range</button>
+  ` : ''}`;
+}
+function bindDateRangeControl(prefix, rangeStateKey, fromStateKey, toStateKey){
+  document.getElementById(prefix+'RangeSeg')?.addEventListener('click', e=>{
+    const b = e.target.closest('button[data-r]');
+    if(!b) return;
+    state[rangeStateKey] = b.dataset.r;
+    render();
+  });
+  document.getElementById(prefix+'CustomApply')?.addEventListener('click', ()=>{
+    const fromEl = document.getElementById(prefix+'CustomFrom');
+    const toEl = document.getElementById(prefix+'CustomTo');
+    state[fromStateKey] = fromEl ? fromEl.value : '';
+    state[toStateKey] = toEl ? toEl.value : '';
+    if(!state[fromStateKey] && !state[toStateKey]){ showToast('⚠️ Pick at least one date'); return; }
+    render();
+  });
+}
+
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -806,11 +877,12 @@ function bindGateEvents(){
 
 /* ---------------- Dashboard ---------------- */
 function viewDashboard(){
-  const today = todayStr();
-  const todaySales = state.sales.filter(s=>s.ts.slice(0,10)===today);
-  const revenue = todaySales.reduce((a,s)=>a+s.total,0);
-  const cogsToday = todaySales.reduce((a,s)=>a+s.cost*s.qty,0);
-  const profit = revenue - cogsToday;
+  const dashRange = state._dashRange || 'today';
+  const cutoff = getDateCutoff(dashRange, state._dashCustomFrom, state._dashCustomTo);
+  const periodSales = state.sales.filter(s=> inDateRange(s.ts, cutoff));
+  const revenue = periodSales.reduce((a,s)=>a+s.total,0);
+  const cogsPeriod = periodSales.reduce((a,s)=>a+s.cost*s.qty,0);
+  const profit = revenue - cogsPeriod;
   const lowStock = state.inventory.filter(i=>i.reorder>0 && i.qty<=i.reorder);
   const invValue = state.inventory.reduce((a,i)=>a+i.cost*i.qty,0);
   const recent = [...state.sales].sort((a,b)=>b.ts.localeCompare(a.ts)).slice(0,6);
@@ -818,7 +890,7 @@ function viewDashboard(){
   const gcashFloat = (state.config.gcashFloatStart||0)
     + state.gcash.filter(g=>g.type==='cash-out').reduce((a,g)=>a+g.amount,0)
     - state.gcash.filter(g=>g.type==='cash-in').reduce((a,g)=>a+g.amount,0);
-  const gcashFeesToday = state.gcash.filter(g=>g.date.slice(0,10)===today).reduce((a,g)=>a+(g.fee||0),0);
+  const gcashFeesPeriod = state.gcash.filter(g=> inDateRange(g.date, cutoff)).reduce((a,g)=>a+(g.fee||0),0);
   const gcashFeesAll = state.gcash.reduce((a,g)=>a+(g.fee||0),0);
 
   const utangTotal = state.utang.reduce((a,c)=>a+c.balance,0);
@@ -827,12 +899,13 @@ function viewDashboard(){
   const vUnused = state.voucherCodes.filter(c=>voucherCodeStatus(c)==='unused').length;
   const vUsed = state.voucherCodes.filter(c=>voucherCodeStatus(c)==='used').length;
   const vExpired = state.voucherCodes.filter(c=>voucherCodeStatus(c)==='expired').length;
-  const vSoldToday = todaySales.filter(s=>s.isVoucher).reduce((a,s)=>a+s.qty,0);
-  const vProfitToday = todaySales.filter(s=>s.isVoucher).reduce((a,s)=>a+(s.price-s.cost)*s.qty,0);
+  const vSoldPeriod = periodSales.filter(s=>s.isVoucher).reduce((a,s)=>a+s.qty,0);
+  const vProfitPeriod = periodSales.filter(s=>s.isVoucher).reduce((a,s)=>a+(s.price-s.cost)*s.qty,0);
   const vProfitAll = state.sales.filter(s=>s.isVoucher).reduce((a,s)=>a+(s.price-s.cost)*s.qty,0);
 
-  const expensesToday = state.expenses.filter(e=>e.date.slice(0,10)===today).reduce((a,e)=>a+e.amount,0);
-  const netToday = profit + gcashFeesToday - expensesToday;
+  const expensesPeriod = state.expenses.filter(e=> inDateRange(e.date, cutoff)).reduce((a,e)=>a+e.amount,0);
+  const netPeriod = profit + gcashFeesPeriod - expensesPeriod;
+  const periodLabel = dateRangeLabel(dashRange, state._dashCustomFrom, state._dashCustomTo);
 
   return `
   ${state.showInstallHint ? `
@@ -847,20 +920,21 @@ function viewDashboard(){
 
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;">
-      <h2 style="margin:0;">Ngayong Araw — Overall</h2>
+      <h2 style="margin:0;">${esc(periodLabel)} — Overall</h2>
       <button id="syncNowBtn" class="icon-btn" title="Refresh now" style="color:var(--green);">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg>
       </button>
     </div>
-    <div class="stat-row">
+    ${dateRangeControlHtml('dash', dashRange, state._dashCustomFrom, state._dashCustomTo, true)}
+    <div class="stat-row" style="margin-top:14px;">
       <div class="stat" style="--accent:var(--green)"><div class="label">Sales</div><div class="value mono">${peso(revenue)}</div></div>
       <div class="stat" style="--accent:var(--yellow)"><div class="label">Item Profit</div><div class="value mono">${peso(profit)}</div></div>
-      <div class="stat" style="--accent:var(--red)"><div class="label">Transactions</div><div class="value mono">${todaySales.length}</div></div>
+      <div class="stat" style="--accent:var(--red)"><div class="label">Transactions</div><div class="value mono">${periodSales.length}</div></div>
     </div>
     <div class="stat-row" style="margin-top:10px;">
-      <div class="stat" style="--accent:var(--green)"><div class="label">GCash fees today</div><div class="value mono">${peso(gcashFeesToday)}</div></div>
-      <div class="stat" style="--accent:var(--red)"><div class="label">Expenses today</div><div class="value mono">${peso(expensesToday)}</div></div>
-      <div class="stat" style="--accent:var(--yellow)"><div class="label">Net today</div><div class="value mono" style="color:${netToday<0?'var(--red)':'inherit'}">${peso(netToday)}</div></div>
+      <div class="stat" style="--accent:var(--green)"><div class="label">GCash fees</div><div class="value mono">${peso(gcashFeesPeriod)}</div></div>
+      <div class="stat" style="--accent:var(--red)"><div class="label">Expenses</div><div class="value mono">${peso(expensesPeriod)}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Net</div><div class="value mono" style="color:${netPeriod<0?'var(--red)':'inherit'}">${peso(netPeriod)}</div></div>
     </div>
     <div style="font-size:11px;color:var(--ink-soft);margin-top:10px;">Synced ${state.lastSync ? state.lastSync.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'}) : '—'} · updates automatically every 30s</div>
   </div>
@@ -878,7 +952,7 @@ function viewDashboard(){
     <h2>💳 GCash Float & Profit</h2>
     <div class="stat-row">
       <div class="stat" style="--accent:var(--green)"><div class="label">Current float</div><div class="value mono" style="color:${gcashFloat<0?'var(--red)':'inherit'}">${peso(gcashFloat)}</div></div>
-      <div class="stat"><div class="label">Fees today</div><div class="value mono">${peso(gcashFeesToday)}</div></div>
+      <div class="stat"><div class="label">Fees (${esc(periodLabel)})</div><div class="value mono">${peso(gcashFeesPeriod)}</div></div>
       <div class="stat" style="--accent:var(--yellow)"><div class="label">Fees all-time (profit)</div><div class="value mono">${peso(gcashFeesAll)}</div></div>
     </div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">Manage cash-in / cash-out in the <strong>Log</strong> tab.</p>
@@ -895,8 +969,8 @@ function viewDashboard(){
   <div class="card">
     <h2>📶 WiFi Vouchers & Profit</h2>
     <div class="stat-row">
-      <div class="stat" style="--accent:var(--green)"><div class="label">Sold today</div><div class="value mono">${vSoldToday}</div></div>
-      <div class="stat" style="--accent:var(--yellow)"><div class="label">Profit today</div><div class="value mono">${peso(vProfitToday)}</div></div>
+      <div class="stat" style="--accent:var(--green)"><div class="label">Sold (${esc(periodLabel)})</div><div class="value mono">${vSoldPeriod}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Profit (${esc(periodLabel)})</div><div class="value mono">${peso(vProfitPeriod)}</div></div>
       <div class="stat"><div class="label">Profit all-time</div><div class="value mono">${peso(vProfitAll)}</div></div>
     </div>
     <div class="stat-row" style="margin-top:10px;">
@@ -1406,11 +1480,10 @@ function viewStockAdjustmentsSection(){
 function viewTransactionsSection(){
   const range = state._txRange || '7';
   const q = (state._txSearch||'').toLowerCase();
-  const now = new Date();
-  const cutoff = range==='all' ? null : new Date(now.getTime() - Number(range)*86400000);
+  const cutoff = getDateCutoff(range, state._txCustomFrom, state._txCustomTo);
   const isOwner = state.role==='owner';
   const filtered = state.sales
-    .filter(s=> !cutoff || new Date(s.ts) >= cutoff)
+    .filter(s=> inDateRange(s.ts, cutoff))
     .filter(s=> !q || s.name.toLowerCase().includes(q))
     .sort((a,b)=>b.ts.localeCompare(a.ts));
   const total = filtered.reduce((a,s)=>a+s.total,0);
@@ -1418,15 +1491,10 @@ function viewTransactionsSection(){
   return `
   <div class="card">
     <h2>Previous Transactions</h2>
-    <div class="segmented" id="txRangeSeg">
-      <button data-r="1" class="${range==='1'?'active':''}">Today</button>
-      <button data-r="7" class="${range==='7'?'active':''}">7 days</button>
-      <button data-r="30" class="${range==='30'?'active':''}">30 days</button>
-      <button data-r="all" class="${range==='all'?'active':''}">All</button>
-    </div>
+    ${dateRangeControlHtml('tx', range, state._txCustomFrom, state._txCustomTo, false)}
     <div class="field" style="margin-top:10px;"><input id="txSearch" placeholder="🔍 Search by item name" value="${esc(state._txSearch||'')}"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-      <div style="font-size:12.5px;color:var(--ink-soft);">${filtered.length} transaction(s) · total ${peso(total)}</div>
+      <div style="font-size:12.5px;color:var(--ink-soft);">${dateRangeLabel(range, state._txCustomFrom, state._txCustomTo)} · ${filtered.length} transaction(s) · total ${peso(total)}</div>
       <button id="exportTxExcelBtn" class="btn-secondary" style="padding:7px 12px;font-size:12.5px;">⬇ Export Excel</button>
     </div>
     ${isOwner? `<p style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;">Wrong quantity on a sale? Tap ✏️ on that row to fix it — stock adjusts automatically to match.</p>` : ''}
@@ -1591,12 +1659,7 @@ function bindLogEvents(){
     render();
   });
 
-  document.getElementById('txRangeSeg')?.addEventListener('click', e=>{
-    const b = e.target.closest('button[data-r]');
-    if(!b) return;
-    state._txRange = b.dataset.r;
-    render();
-  });
+  bindDateRangeControl('tx', '_txRange', '_txCustomFrom', '_txCustomTo');
   document.getElementById('txSearch')?.addEventListener('input', e=>{
     state._txSearch = e.target.value;
     render();
@@ -1605,11 +1668,10 @@ function bindLogEvents(){
   });
   document.getElementById('exportTxExcelBtn')?.addEventListener('click', ()=>{
     const range = state._txRange || '7';
-    const now = new Date();
-    const cutoff = range==='all' ? null : new Date(now.getTime() - Number(range)*86400000);
+    const cutoff = getDateCutoff(range, state._txCustomFrom, state._txCustomTo);
     const q = (state._txSearch||'').toLowerCase();
     const rows = state.sales
-      .filter(s=> !cutoff || new Date(s.ts) >= cutoff)
+      .filter(s=> inDateRange(s.ts, cutoff))
       .filter(s=> !q || s.name.toLowerCase().includes(q))
       .sort((a,b)=>b.ts.localeCompare(a.ts))
       .map(s=>({
@@ -2074,17 +2136,16 @@ async function openPastReceipt(id){
 /* ---------------- Reports ---------------- */
 function viewReports(){
   const range = state._reportRange || '7';
-  const now = new Date();
-  const cutoff = range==='all' ? null : new Date(now.getTime() - Number(range)*86400000);
-  const filtered = state.sales.filter(s=> !cutoff || new Date(s.ts) >= cutoff);
+  const cutoff = getDateCutoff(range, state._reportCustomFrom, state._reportCustomTo);
+  const filtered = state.sales.filter(s=> inDateRange(s.ts, cutoff));
   const revenue = filtered.reduce((a,s)=>a+s.total,0);
   const cost = filtered.reduce((a,s)=>a+s.cost*s.qty,0);
   const itemProfit = revenue-cost;
 
-  const gcashFiltered = state.gcash.filter(g=> !cutoff || new Date(g.date) >= cutoff);
+  const gcashFiltered = state.gcash.filter(g=> inDateRange(g.date, cutoff));
   const gcashFees = gcashFiltered.reduce((a,g)=>a+(g.fee||0),0);
 
-  const expFiltered = state.expenses.filter(e=> !cutoff || new Date(e.date) >= cutoff);
+  const expFiltered = state.expenses.filter(e=> inDateRange(e.date, cutoff));
   const expTotal = expFiltered.reduce((a,e)=>a+e.amount,0);
 
   const netProfit = itemProfit + gcashFees - expTotal;
@@ -2105,13 +2166,8 @@ function viewReports(){
 
   return `
   <div class="card">
-    <h2>Reports — Overall</h2>
-    <div class="segmented" id="rangeSeg">
-      <button data-r="1" class="${range==='1'?'active':''}">Today</button>
-      <button data-r="7" class="${range==='7'?'active':''}">7 days</button>
-      <button data-r="30" class="${range==='30'?'active':''}">30 days</button>
-      <button data-r="all" class="${range==='all'?'active':''}">All</button>
-    </div>
+    <h2>Reports — ${esc(dateRangeLabel(range, state._reportCustomFrom, state._reportCustomTo))}</h2>
+    ${dateRangeControlHtml('report', range, state._reportCustomFrom, state._reportCustomTo, false)}
     <div class="stat-row" style="margin-top:14px;">
       <div class="stat" style="--accent:var(--green)"><div class="label">Revenue</div><div class="value mono">${peso(revenue)}</div></div>
       <div class="stat" style="--accent:var(--yellow)"><div class="label">Cost of Goods</div><div class="value mono">${peso(cost)}</div></div>
@@ -2163,6 +2219,9 @@ function bindTabEvents(){
     showToast('🔄 Syncing…');
     await backgroundSync();
   });
+  if(state.tab==='dashboard'){
+    bindDateRangeControl('dash', '_dashRange', '_dashCustomFrom', '_dashCustomTo');
+  }
 
   if(state.tab==='inventory'){
     document.getElementById('addItemForm').addEventListener('submit', async e=>{
@@ -2445,12 +2504,7 @@ function bindTabEvents(){
   }
 
   if(state.tab==='reports'){
-    document.getElementById('rangeSeg').addEventListener('click', e=>{
-      const b = e.target.closest('button[data-r]');
-      if(!b) return;
-      state._reportRange = b.dataset.r;
-      render();
-    });
+    bindDateRangeControl('report', '_reportRange', '_reportCustomFrom', '_reportCustomTo');
     document.getElementById('exportBtn').addEventListener('click', exportBackup);
     document.getElementById('exportExcelBtn').addEventListener('click', exportFullReportExcel);
   }
