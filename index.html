@@ -260,6 +260,7 @@
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
     <div class="badge mono" id="headerBadge">₱0</div>
+    <button id="testModeBtn" class="icon-btn" style="display:none;color:var(--paper);" title="Toggle Test Mode">🧪</button>
     <button id="switchUserBtn" class="icon-btn" style="display:none;color:var(--paper);" title="Switch user">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
     </button>
@@ -422,6 +423,20 @@ function gcashSuggestedFee(amount){
   if(amount<=0) return 0;
   return Math.ceil(amount/500)*10;
 }
+// Cash-Out: customer sends GCash, store gives cash back — float goes UP by the amount,
+// and the fee (kept as extra cash, not e-money, but tracked here so the float reflects
+// full transaction value) goes up too.
+// Cash-In: customer gives cash, store sends GCash — float goes DOWN by the amount,
+// and the fee comes down with it in the same direction.
+function computeGcashFloat(){
+  let float = state.config.gcashFloatStart || 0;
+  for(const g of state.gcash){
+    const fee = g.fee || 0;
+    if(g.type === 'cash-out') float += g.amount + fee;
+    else float -= (g.amount + fee);
+  }
+  return float;
+}
 
 function parseBulkLines(raw){
   return raw.split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{
@@ -478,6 +493,7 @@ let state = {
   gateStep: 'pick',  // 'pick' | 'ownerPin' | 'setupPin'
   gateError: '',
   lastSync: null,
+  testMode: false, // in-memory only, never persisted — always starts off on a fresh load, owner-only toggle
 };
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
@@ -571,10 +587,16 @@ function showToast(msg){
    there's no Firebase Auth wired in, so per-device scoping doesn't really
    exist; the install-hint dismiss flag just lives in the same store under
    a "device-" prefix as a low-stakes tradeoff. Access is separated in-app
-   by role (PIN-gated), not by storage scope — see the note on the role screen. */
+   by role (PIN-gated), not by storage scope — see the note on the role screen.
+
+   Test Mode: when active, every key is transparently prefixed with "test-",
+   pointing reads/writes at a completely separate set of Firestore documents.
+   Nothing done in Test Mode can touch real data, and switching back reveals
+   the real data untouched. */
+function storageKey(key){ return state.testMode ? 'test-'+key : key; }
 async function storageGet(key, fallback){
   try{
-    const json = await window.fsGet(key);
+    const json = await window.fsGet(storageKey(key));
     if(json === undefined || json === null) return fallback;
     return JSON.parse(json);
   }catch(e){
@@ -584,7 +606,7 @@ async function storageGet(key, fallback){
 }
 async function storageSet(key, value){
   try{
-    await window.fsSet(key, JSON.stringify(value));
+    await window.fsSet(storageKey(key), JSON.stringify(value));
     state._saveError = '';
     return true;
   }catch(e){
@@ -641,12 +663,12 @@ async function loadAll(){
 // Logs every manual stock quantity correction (not sales, not checkout — those are
 // already tracked via the sales list). Silent for quick +/- taps, but always recorded,
 // so "why does Hansel say 7" is always answerable later.
-async function logStockAdjustment(item, oldQty, newQty, reason){
+async function logStockAdjustment(item, oldQty, newQty, reason, customDate){
   if(oldQty === newQty) return;
   state.stockAdjustments.push({
     id: uid(), itemId: item.id, itemName: item.name,
     oldQty, newQty, reason: (reason||'').trim(),
-    changedBy: state.role, date: new Date().toISOString(),
+    changedBy: state.role, date: customDate || new Date().toISOString(),
   });
   await storageSet('stock-adjustments', state.stockAdjustments);
 }
@@ -716,6 +738,11 @@ function updateHeader(){
   if(document.activeElement !== nameInput) nameInput.value = state.config.name || 'Tindahan';
   nameInput.disabled = state.role!=='owner';
   document.getElementById('switchUserBtn').style.display = state.role ? 'inline-flex' : 'none';
+  const testBtn = document.getElementById('testModeBtn');
+  testBtn.style.display = state.role==='owner' ? 'inline-flex' : 'none';
+  testBtn.style.background = state.testMode ? 'var(--yellow)' : 'transparent';
+  testBtn.style.color = state.testMode ? 'var(--ink)' : 'var(--paper)';
+  testBtn.style.borderRadius = '8px';
 }
 
 function render(){
@@ -733,6 +760,12 @@ function render(){
   updateHeader();
   const main = document.getElementById('main');
   let html = '';
+  if(state.testMode){
+    html += `<div class="card" style="border-color:var(--yellow);background:#FFF9E6;">
+      <div style="font-weight:800;color:var(--ink);">🧪 Test Mode is ON</div>
+      <div style="font-size:12.5px;color:var(--ink-soft);margin-top:2px;">Everything you do right now — sales, stock, GCash, all of it — is saved to a separate sandbox. Your real store data is untouched. Tap the 🧪 icon in the header again to go back to real mode.</div>
+    </div>`;
+  }
   if(state._saveError){
     html += `<div class="card" style="border-color:var(--red);background:#FDECEC;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
@@ -887,9 +920,7 @@ function viewDashboard(){
   const invValue = state.inventory.reduce((a,i)=>a+i.cost*i.qty,0);
   const recent = [...state.sales].sort((a,b)=>b.ts.localeCompare(a.ts)).slice(0,6);
 
-  const gcashFloat = (state.config.gcashFloatStart||0)
-    + state.gcash.filter(g=>g.type==='cash-out').reduce((a,g)=>a+g.amount,0)
-    - state.gcash.filter(g=>g.type==='cash-in').reduce((a,g)=>a+g.amount,0);
+  const gcashFloat = computeGcashFloat();
   const gcashFeesPeriod = state.gcash.filter(g=> inDateRange(g.date, cutoff)).reduce((a,g)=>a+(g.fee||0),0);
   const gcashFeesAll = state.gcash.reduce((a,g)=>a+(g.fee||0),0);
 
@@ -1191,6 +1222,12 @@ function viewSell(){
         ${state.utang.map(c=>`<option value="${c.id}" ${pay.utangCustomerId===c.id?'selected':''}>${esc(c.name)} (owes ${peso(c.balance)})</option>`).join('')}
         <option value="__new__">+ New customer…</option>
       </select>
+    </div>` : ''}
+
+    ${state.role==='owner'? `
+    <div class="field" style="margin-top:10px;">
+      <label>Backdate this sale? (optional, owner only)</label>
+      <input type="datetime-local" id="saleBackdate" value="${esc(pay.backdate||'')}" max="${new Date().toISOString().slice(0,16)}">
     </div>` : ''}
 
     <button id="checkoutBtn" class="btn-primary btn-block" style="margin-top:12px">✅ Checkout — Record Sale</button>
@@ -1606,9 +1643,7 @@ function viewGastosSection(isOwner){
 }
 
 function viewGcashSection(isOwner){
-  const float = (state.config.gcashFloatStart||0)
-    + state.gcash.filter(g=>g.type==='cash-out').reduce((a,g)=>a+g.amount,0)
-    - state.gcash.filter(g=>g.type==='cash-in').reduce((a,g)=>a+g.amount,0);
+  const float = computeGcashFloat();
   const recent = [...state.gcash].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
   return `
   <div class="card">
@@ -1620,7 +1655,7 @@ function viewGcashSection(isOwner){
     <div class="field" style="margin-top:10px;"><label>Set starting float (adjust if it drifts from your actual balance)</label>
       <input id="gcashFloatStart" type="number" step="0.01" value="${state.config.gcashFloatStart||0}">
     </div>` : ''}
-    <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Cash In: customer gives cash, you send GCash (float goes down). Cash Out: customer sends GCash, you give cash (float goes up).</p>
+    <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Cash In: customer gives cash, you send GCash — float and fee both come off. Cash Out: customer sends GCash, you give cash — float and fee both add on. Your fee is included automatically, no separate step.</p>
   </div>
   <div class="card">
     <h2>Record Cash-In / Cash-Out</h2>
@@ -2459,7 +2494,9 @@ function bindTabEvents(){
         showToast('⚠️ Pick a customer for Utang first');
         return;
       }
-      const ts = new Date().toISOString();
+      const backdateEl = document.getElementById('saleBackdate');
+      const backdateVal = state.role==='owner' && backdateEl ? backdateEl.value : '';
+      const ts = backdateVal ? new Date(backdateVal).toISOString() : new Date().toISOString();
       const cartTotal = state.cart.reduce((a,c)=>a+c.price*c.qty,0);
       const paymentLabel = pay.method==='cash' ? 'Cash' : pay.method==='gcash' ? 'GCash' : 'Utang';
       for(const line of state.cart){
@@ -2622,6 +2659,11 @@ function openEditModal(item){
           <label>Reason for the quantity change</label>
           <input name="qtyReason" placeholder="e.g. Wrong count from ledger import, actual physical count is 1">
         </div>
+        ${isOwner? `
+        <div class="field" id="qtyBackdateField" style="display:none;">
+          <label>When did this actually happen? (optional, owner only)</label>
+          <input type="datetime-local" name="qtyBackdate" max="${new Date().toISOString().slice(0,16)}">
+        </div>` : ''}
         <div class="field"><label>Remarks</label><input name="remarks" value="${esc(item.remarks||'')}" placeholder="e.g. near expiry, damaged pack"></div>
         <div class="field"><label>Reorder level</label><input name="reorder" type="number" value="${item.reorder}"></div>
         <button type="submit" class="btn-primary btn-block">Save Changes</button>
@@ -2633,6 +2675,8 @@ function openEditModal(item){
   document.getElementById('editQtyInput').addEventListener('input', e=>{
     const changed = parseInt(e.target.value) !== item.qty;
     document.getElementById('qtyReasonField').style.display = changed ? '' : 'none';
+    const bd = document.getElementById('qtyBackdateField');
+    if(bd) bd.style.display = changed ? '' : 'none';
   });
   document.getElementById('editForm').addEventListener('submit', async e=>{
     e.preventDefault();
@@ -2648,7 +2692,11 @@ function openEditModal(item){
     item.reorder = parseInt(f.get('reorder'))||0;
     item.remarks = (f.get('remarks')||'').trim();
     await storageSet('inventory', state.inventory);
-    if(newQty !== oldQty) await logStockAdjustment(item, oldQty, newQty, f.get('qtyReason') || 'Manual correction (no reason given)');
+    if(newQty !== oldQty){
+      const backdateVal = isOwner ? f.get('qtyBackdate') : '';
+      const customDate = backdateVal ? new Date(backdateVal).toISOString() : null;
+      await logStockAdjustment(item, oldQty, newQty, f.get('qtyReason') || 'Manual correction (no reason given)', customDate);
+    }
     root.innerHTML='';
     showToast('✅ Item updated');
     render();
@@ -2769,6 +2817,18 @@ async function init(){
     state.gateStep = 'pick';
     state.gateError = '';
     state.cart = [];
+    state.testMode = false;
+    render();
+  });
+  document.getElementById('testModeBtn').addEventListener('click', async ()=>{
+    if(state.role!=='owner') return;
+    const turningOn = !state.testMode;
+    if(turningOn && !confirm('Switch to Test Mode? You\'ll be working in a separate sandbox — nothing here affects your real sales or stock. Tap the flask icon again anytime to switch back.')) return;
+    state.testMode = turningOn;
+    state.cart = [];
+    document.getElementById('main').innerHTML = `<div class="empty" style="padding:60px 10px;"><span class="big">⏳</span>Switching to ${turningOn?'Test':'Real'} Mode…</div>`;
+    await loadAll();
+    showToast(turningOn ? '🧪 Test Mode ON' : '✅ Back to real data');
     render();
   });
   document.getElementById('storeNameInput').addEventListener('change', async e=>{
