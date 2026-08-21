@@ -112,17 +112,26 @@ function gcashSuggestedFee(amount){
   if(amount<=0) return 0;
   return Math.ceil(amount/500)*10;
 }
-// Cash-Out: customer sends GCash, store gives cash back — float goes UP by the amount,
-// and the fee (kept as extra cash, not e-money, but tracked here so the float reflects
-// full transaction value) goes up too.
-// Cash-In: customer gives cash, store sends GCash — float goes DOWN by the amount,
-// and the fee comes down with it in the same direction.
+// The fee's effect on float depends on WHICH side of the transaction it's taken from,
+// not just cash-in vs cash-out:
+//   feeMode 'add'    — customer pays the fee separately (on top), as an extra cash
+//                       payment or extra GCash sent. The amount that actually moves as
+//                       e-money stays at face value.
+//   feeMode 'deduct' — the fee comes out of the digital transfer itself. Cash-In: less
+//                       GCash actually gets sent out. Cash-Out: more GCash actually
+//                       comes in (customer sends the fee along with the cash-out amount).
+// Cash-In always reduces float (GCash goes out); Cash-Out always increases it (GCash
+// comes in). The feeMode only changes by how much.
 function computeGcashFloat(){
   let float = state.config.gcashFloatStart || 0;
   for(const g of state.gcash){
     const fee = g.fee || 0;
-    if(g.type === 'cash-out') float += g.amount + fee;
-    else float -= (g.amount + fee);
+    const mode = g.feeMode || 'add'; // legacy records predate this field
+    if(g.type === 'cash-out'){
+      float += (mode==='add') ? (g.amount + fee) : g.amount;
+    } else {
+      float -= (mode==='add') ? g.amount : (g.amount - fee);
+    }
   }
   return float;
 }
@@ -1445,7 +1454,7 @@ function viewGcashSection(isOwner){
     <div class="field" style="margin-top:10px;"><label>Set starting float (adjust if it drifts from your actual balance)</label>
       <input id="gcashFloatStart" type="number" step="0.01" value="${state.config.gcashFloatStart||0}">
     </div>` : ''}
-    <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Cash In: customer gives cash, you send GCash — float and fee both come off. Cash Out: customer sends GCash, you give cash — float and fee both add on. Your fee is included automatically, no separate step.</p>
+    <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Cash In always sends float down, Cash Out always brings it up — but how much depends on who pays the fee. Pick that per transaction below.</p>
   </div>
   <div class="card">
     <h2>Record Cash-In / Cash-Out</h2>
@@ -1457,19 +1466,28 @@ function viewGcashSection(isOwner){
       <input type="hidden" name="type" id="gcashTypeInput" value="cash-in">
       <div class="grid2" style="margin-top:10px;">
         <div class="field"><label>Amount (₱)</label><input id="gcashAmount" name="amount" type="number" step="0.01" required></div>
-        ${isOwner? `<div class="field"><label>Your fee (₱) <span style="font-weight:400;color:var(--ink-soft);">auto, editable</span></label><input id="gcashFee" name="fee" type="number" step="0.01" value="0"></div>` : ''}
+        <div class="field"><label>Fee (₱) <span style="font-weight:400;color:var(--ink-soft);">auto, editable</span></label><input id="gcashFee" name="fee" type="number" step="0.01" value="0"></div>
       </div>
-      <div class="field"><label>Remarks</label><input name="remarks" placeholder="optional"></div>
+      <div class="field" style="margin-top:10px;">
+        <label id="gcashFeeModeLabel">Who pays the fee?</label>
+        <div class="segmented" id="gcashFeeModeSeg">
+          <button type="button" data-fmode="add" class="active">Customer pays it separately</button>
+          <button type="button" data-fmode="deduct">Deducted from the transfer</button>
+        </div>
+        <p id="gcashFeeModeHelp" style="font-size:11.5px;color:var(--ink-soft);margin:6px 0 0;"></p>
+      </div>
+      <input type="hidden" name="feeMode" id="gcashFeeModeInput" value="add">
+      <div class="field" style="margin-top:10px;"><label>Remarks</label><input name="remarks" placeholder="optional"></div>
       <button type="submit" class="btn-primary btn-block">Save Transaction</button>
     </form>
-    ${isOwner? `<p style="font-size:11px;color:var(--ink-soft);margin-top:8px;">Fee auto-fills from your ₱10-per-₱500-bracket schedule (₱1–500 → ₱10, up to ₱9,501–10,000 → ₱200) — edit it any time before saving if a transaction needs a different fee.</p>` : ''}
+    <p style="font-size:11px;color:var(--ink-soft);margin-top:8px;">Fee auto-fills from a ₱10-per-₱500-bracket schedule (₱1–500 → ₱10, up to ₱9,501–10,000 → ₱200) — edit it any time before saving if a transaction needs a different fee.</p>
   </div>
   <div class="card">
     <h2>Recent GCash Transactions</h2>
     ${recent.length? recent.map(g=>`
       <div class="ledger-row">
         <div><strong>${g.type==='cash-in'?'Cash In':'Cash Out'}</strong>
-          <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">${new Date(g.date).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} ${g.remarks?'· '+esc(g.remarks):''}${isOwner&&g.fee?` · fee ${peso(g.fee)}`:''}</div>
+          <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">${new Date(g.date).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} ${g.remarks?'· '+esc(g.remarks):''}${g.fee?` · fee ${peso(g.fee)} (${g.feeMode==='deduct'?'deducted':'paid separately'})`:''}</div>
         </div>
         <span class="mono" style="font-weight:800;">${peso(g.amount)}</span>
       </div>`).join('') : `<div class="empty"><span class="big">💳</span>No GCash transactions yet.</div>`}
@@ -1686,19 +1704,49 @@ function bindLogEvents(){
   });
   document.getElementById('gcashFee')?.addEventListener('input', e=>{ e.target.dataset.touched = '1'; });
 
+  function updateGcashFeeModeHelp(){
+    const type = document.getElementById('gcashTypeInput')?.value;
+    const mode = document.getElementById('gcashFeeModeInput')?.value;
+    const help = document.getElementById('gcashFeeModeHelp');
+    if(!help) return;
+    if(type==='cash-in'){
+      help.textContent = mode==='add'
+        ? 'Customer hands you cash = amount + fee. You send exactly "amount" to their GCash.'
+        : 'Customer hands you exactly "amount" in cash. You send "amount − fee" to their GCash.';
+    } else {
+      help.textContent = mode==='add'
+        ? 'Customer sends you "amount + fee" in GCash. You hand them exactly "amount" in cash.'
+        : 'Customer sends you exactly "amount" in GCash. You hand them "amount − fee" in cash.';
+    }
+  }
+  updateGcashFeeModeHelp();
+
   document.getElementById('gcashTypeSeg')?.addEventListener('click', e=>{
     const b = e.target.closest('button[data-gtype]');
     if(!b) return;
     document.querySelectorAll('#gcashTypeSeg button').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
     document.getElementById('gcashTypeInput').value = b.dataset.gtype;
+    updateGcashFeeModeHelp();
+  });
+  document.getElementById('gcashFeeModeSeg')?.addEventListener('click', e=>{
+    const b = e.target.closest('button[data-fmode]');
+    if(!b) return;
+    document.querySelectorAll('#gcashFeeModeSeg button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('gcashFeeModeInput').value = b.dataset.fmode;
+    updateGcashFeeModeHelp();
   });
   document.getElementById('gcashForm')?.addEventListener('submit', async e=>{
     e.preventDefault();
     const f = new FormData(e.target);
     const amount = parseFloat(f.get('amount'))||0;
     if(amount<=0) return;
-    state.gcash.push({id:uid(), date:new Date().toISOString(), type:f.get('type'), amount, fee:parseFloat(f.get('fee'))||0, remarks:(f.get('remarks')||'').trim(), addedBy:state.role});
+    state.gcash.push({
+      id:uid(), date:new Date().toISOString(), type:f.get('type'), amount,
+      fee:parseFloat(f.get('fee'))||0, feeMode: f.get('feeMode')||'add',
+      remarks:(f.get('remarks')||'').trim(), addedBy:state.role,
+    });
     await storageSet('gcash', state.gcash);
     showToast('✅ Transaction saved');
     render();
