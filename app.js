@@ -371,6 +371,22 @@ async function logStockAdjustment(item, oldQty, newQty, reason, customDate){
   await storageSet('stock-adjustments', state.stockAdjustments);
 }
 
+// Tap-to-type total stock, used from both the Stocks list and Bentahan's sell tiles —
+// same underlying correction + audit-log path as every other manual qty change.
+async function quickEditItemTotal(item, source){
+  const input = prompt(`New total stock for "${item.name}"?`, item.qty);
+  if(input === null) return; // cancelled
+  const newQty = parseInt(input);
+  if(isNaN(newQty) || newQty < 0){ showToast('⚠️ Enter a valid number'); return; }
+  if(newQty === item.qty) return;
+  const oldQty = item.qty;
+  item.qty = newQty;
+  await storageSet('inventory', state.inventory);
+  await logStockAdjustment(item, oldQty, newQty, `Quick total edit from ${source}`);
+  showToast('✅ Stock updated');
+  render();
+}
+
 // Pulls fresh shared data in the background so a remote owner (or a second device)
 // sees near-live updates without a manual reload. Skips quietly while a modal is
 // open or the person is mid-typing, so it never yanks away unsaved input.
@@ -932,7 +948,7 @@ function viewInventory(){
         </div>
         <div class="qty-adjust">
           <button data-act="dec">−</button>
-          <span class="qty-num mono">${i.qty}</span>
+          <span class="qty-num mono" data-act="qtyedit" style="cursor:pointer;text-decoration:underline dotted;" title="Tap to type the exact total">${i.qty}</span>
           <button data-act="inc">+</button>
         </div>
         <button class="icon-btn" data-act="edit">${ICONS.edit}</button>
@@ -966,11 +982,14 @@ function viewSell(){
         const inCart = state.cart.find(c=>c.itemId===i.id)?.qty || 0;
         const remaining = i.qty - inCart;
         return `
-        <button class="pos-item" data-id="${i.id}" ${remaining<=0?'disabled style="opacity:.4"':''}>
-          <span class="n">${esc(i.name)}</span>
-          <span class="p mono">${peso(i.price)}</span>
-          <span class="s">${remaining} ${esc(i.unit)} left${inCart? ` <span style="color:var(--yellow);font-weight:700;">(${inCart} in cart)</span>` : ''}</span>
-        </button>`;
+        <div style="position:relative;">
+          <button class="pos-item" data-id="${i.id}" style="width:100%;${remaining<=0?'opacity:.4;':''}" ${remaining<=0?'disabled':''}>
+            <span class="n">${esc(i.name)}</span>
+            <span class="p mono">${peso(i.price)}</span>
+            <span class="s">${remaining} ${esc(i.unit)} left${inCart? ` <span style="color:var(--yellow);font-weight:700;">(${inCart} in cart)</span>` : ''}</span>
+          </button>
+          <button data-qtyeditsell="${i.id}" title="Tap to edit total stock" style="position:absolute;top:4px;right:4px;background:rgba(255,255,255,0.9);border:1px solid var(--line);border-radius:6px;padding:3px 5px;font-size:11px;line-height:1;">✏️</button>
+        </div>`;
       }).join('')}
     </div>` : `<div class="empty"><span class="big">🛒</span>No stock to sell yet. Add items in <strong>Stocks</strong> first.</div>`}
   </div>
@@ -1483,7 +1502,11 @@ function viewGcashSection(isOwner){
     <p style="font-size:11px;color:var(--ink-soft);margin-top:8px;">Fee auto-fills from a ₱10-per-₱500-bracket schedule (₱1–500 → ₱10, up to ₱9,501–10,000 → ₱200) — edit it any time before saving if a transaction needs a different fee.</p>
   </div>
   <div class="card">
-    <h2>Recent GCash Transactions</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;">Recent GCash Transactions</h2>
+      <button id="exportGcashExcelBtn" class="btn-secondary" style="padding:7px 12px;font-size:12.5px;">⬇ Export Excel</button>
+    </div>
+    <div style="margin-top:10px;">
     ${recent.length? recent.map(g=>`
       <div class="ledger-row">
         <div><strong>${g.type==='cash-in'?'Cash In':'Cash Out'}</strong>
@@ -1491,6 +1514,7 @@ function viewGcashSection(isOwner){
         </div>
         <span class="mono" style="font-weight:800;">${peso(g.amount)}</span>
       </div>`).join('') : `<div class="empty"><span class="big">💳</span>No GCash transactions yet.</div>`}
+    </div>
   </div>`;
 }
 
@@ -1756,6 +1780,18 @@ function bindLogEvents(){
     await storageSet('store-config', state.config);
     showToast('✅ Float updated');
     render();
+  });
+  document.getElementById('exportGcashExcelBtn')?.addEventListener('click', ()=>{
+    const rows = [...state.gcash].sort((a,b)=>b.date.localeCompare(a.date)).map(g=>({
+      Date: new Date(g.date).toLocaleString('en-PH'),
+      Type: g.type==='cash-in' ? 'Cash In' : 'Cash Out',
+      Amount: g.amount,
+      Fee: g.fee||0,
+      'Fee Handling': g.feeMode==='deduct' ? 'Deducted from transfer' : 'Customer paid separately',
+      Remarks: g.remarks||'',
+      'Recorded By': g.addedBy||'',
+    }));
+    exportRowsToExcel(rows, `gcash-transactions-${todayStr()}`, 'GCash');
   });
 }
 
@@ -2248,6 +2284,7 @@ function bindTabEvents(){
         await logStockAdjustment(item, oldQty, item.qty, 'Quick -1');
         render();
       });
+      row.querySelector('[data-act="qtyedit"]').addEventListener('click', ()=> quickEditItemTotal(item, 'Stocks'));
       row.querySelector('[data-act="del"]').addEventListener('click', async ()=>{
         if(!confirm(`Remove "${item.name}" from inventory?`)) return;
         state.inventory = state.inventory.filter(i=>i.id!==id);
@@ -2312,6 +2349,13 @@ function bindTabEvents(){
         if(line) line.qty++;
         else state.cart.push({itemId:id, name:item.name, price:item.price, cost:item.cost, qty:1});
         render();
+      });
+    });
+    document.querySelectorAll('[data-qtyeditsell]').forEach(btn=>{
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        const item = state.inventory.find(i=>i.id===btn.dataset.qtyeditsell);
+        if(item) quickEditItemTotal(item, 'Bentahan');
       });
     });
     document.querySelectorAll('.cart-line').forEach(row=>{
