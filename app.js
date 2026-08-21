@@ -810,10 +810,8 @@ function viewEmployeeDashboard(){
   const revenue = todaySales.reduce((a,s)=>a+s.total,0);
   const lowStock = state.inventory.filter(i=>i.reorder>0 && i.qty<=i.reorder);
 
-  const gcashWallet = computeGcashWallet();
   const cashOnHand = computeCashOnHand();
   const gcashFeesToday = state.gcash.filter(g=>g.date.slice(0,10)===today).reduce((a,g)=>a+(g.fee||0),0);
-  const gcashFeesAll = state.gcash.reduce((a,g)=>a+(g.fee||0),0);
 
   const eloadBalance = computeEloadBalance();
   const eloadFeesToday = state.eload.filter(l=>l.date.slice(0,10)===today).reduce((a,l)=>a+(l.fee||0),0);
@@ -860,12 +858,8 @@ function viewEmployeeDashboard(){
   <div class="card">
     <h2>💳 GCash</h2>
     <div class="stat-row">
-      <div class="stat" style="--accent:${gcashWallet<0?'var(--red)':'var(--green)'}"><div class="label">GCash Wallet</div><div class="value mono">${peso(gcashWallet)}</div></div>
       <div class="stat" style="--accent:${cashOnHand<0?'var(--red)':'var(--yellow)'}"><div class="label">Cash on Hand</div><div class="value mono">${peso(cashOnHand)}</div></div>
-    </div>
-    <div class="stat-row" style="margin-top:10px;">
       <div class="stat"><div class="label">Fees today</div><div class="value mono">${peso(gcashFeesToday)}</div></div>
-      <div class="stat" style="--accent:var(--yellow)"><div class="label">Fees all-time</div><div class="value mono">${peso(gcashFeesAll)}</div></div>
     </div>
   </div>
 
@@ -957,6 +951,21 @@ function viewInventory(){
       <div class="field"><label>Reorder alert level (0 = off)</label><input name="reorder" type="number" inputmode="numeric" value="5"></div>
       <button type="submit" class="btn-primary btn-block">${ICONS.plus} Add Item</button>
     </form>
+  </div>
+
+  <div class="card">
+    <h2>📦 Incoming Stock (Manila → Tanza)</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">When a delivery arrives from Manila, log what came in here — it adds straight to what's already on the shelf (not a replace) and shows up in the Stock Corrections log so there's a record of every shipment.</p>
+    <form id="incomingStockForm">
+      <div class="field"><label>Items received (one per line): <code>Item name, Qty</code></label>
+        <textarea id="incomingStockText" rows="6" style="width:100%;font-family:ui-monospace,monospace;font-size:12.5px;border:1px solid var(--line);border-radius:10px;padding:10px;" placeholder="Coke, 24
+Lucky Me Pancit Canton, 50"></textarea>
+      </div>
+      <div class="field"><label>Batch note (optional)</label><input name="batchNote" placeholder="e.g. Aug 25 delivery, invoice #123"></div>
+      ${isOwner? `<div class="field"><label>Date received (optional, owner only)</label><input type="date" id="incomingStockDate" max="${todayStr()}"></div>` : ''}
+      <button type="submit" class="btn-primary btn-block">${ICONS.plus} Log Incoming Stock</button>
+    </form>
+    <p style="font-size:11px;color:var(--ink-soft);margin-top:8px;">Only matches items already in your Stock List below — if something's brand new, add it with the form above first, then log the delivery here.</p>
   </div>
 
   ${isOwner? `
@@ -2461,6 +2470,37 @@ function bindTabEvents(){
   }
 
   if(state.tab==='inventory'){
+    document.getElementById('incomingStockForm')?.addEventListener('submit', async e=>{
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const batchNote = (f.get('batchNote')||'').trim();
+      const dateEl = document.getElementById('incomingStockDate');
+      const customDate = (state.role==='owner' && dateEl && dateEl.value) ? new Date(dateEl.value).toISOString() : null;
+      const raw = document.getElementById('incomingStockText').value;
+      const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
+      let matched = 0, skipped = [];
+      const reason = `Received from Manila${batchNote ? ' — '+batchNote : ''}`;
+      for(const line of lines){
+        const parts = line.split(',').map(p=>p.trim());
+        if(parts.length<2){ skipped.push(line); continue; }
+        const name = parts[0];
+        const qty = parseInt(parts[1]);
+        if(!name || isNaN(qty) || qty<=0){ skipped.push(line); continue; }
+        const item = state.inventory.find(i=>i.name.toLowerCase()===name.toLowerCase());
+        if(!item){ skipped.push(line); continue; }
+        const oldQty = item.qty;
+        item.qty += qty;
+        await logStockAdjustment(item, oldQty, item.qty, reason, customDate);
+        matched++;
+      }
+      if(matched>0) await storageSet('inventory', state.inventory);
+      if(matched>0 && skipped.length===0) showToast(`✅ ${matched} item(s) restocked from Manila`);
+      else if(matched>0) showToast(`✅ ${matched} restocked, ⚠️ ${skipped.length} skipped (not found in Stock List)`);
+      else showToast(`⚠️ No items matched — check spelling against your Stock List`);
+      e.target.reset();
+      render();
+    });
+
     document.getElementById('addItemForm').addEventListener('submit', async e=>{
       e.preventDefault();
       const f = new FormData(e.target);
