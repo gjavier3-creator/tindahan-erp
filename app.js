@@ -117,23 +117,48 @@ function gcashSuggestedFee(amount){
 //   feeMode 'add'    — customer pays the fee separately (on top), as an extra cash
 //                       payment or extra GCash sent. The amount that actually moves as
 //                       e-money stays at face value.
-//   feeMode 'deduct' — the fee comes out of the digital transfer itself. Cash-In: less
-//                       GCash actually gets sent out. Cash-Out: more GCash actually
-//                       comes in (customer sends the fee along with the cash-out amount).
-// Cash-In always reduces float (GCash goes out); Cash-Out always increases it (GCash
-// comes in). The feeMode only changes by how much.
-function computeGcashFloat(){
-  let float = state.config.gcashFloatStart || 0;
+// GCash Wallet: the e-money balance in the owner's GCash account.
+// Cash-In always sends wallet DOWN (owner sends GCash out); Cash-Out always sends it UP
+// (customer sends GCash in). How much depends on feeMode — see notes below.
+function computeGcashWallet(){
+  let wallet = state.config.gcashFloatStart || 0;
   for(const g of state.gcash){
     const fee = g.fee || 0;
     const mode = g.feeMode || 'add'; // legacy records predate this field
     if(g.type === 'cash-out'){
-      float += (mode==='add') ? (g.amount + fee) : g.amount;
+      wallet += (mode==='add') ? (g.amount + fee) : g.amount;
     } else {
-      float -= (mode==='add') ? g.amount : (g.amount - fee);
+      wallet -= (mode==='add') ? g.amount : (g.amount - fee);
     }
   }
-  return float;
+  return wallet;
+}
+// Cash on Hand: the physical cash the employee is holding from GCash transactions.
+//   feeMode 'add'    — customer pays fee as separate cash. Cash-In: employee receives
+//                       amount+fee in cash (all of it, fee included, stays as cash
+//                       profit). Cash-Out: employee hands out exactly "amount" cash.
+//   feeMode 'deduct' — Cash-In: employee receives exactly "amount" cash (face value).
+//                       Cash-Out: employee hands out "amount − fee" (keeps the fee).
+function computeCashOnHand(){
+  let cash = state.config.cashOnHandStart || 0;
+  for(const g of state.gcash){
+    const fee = g.fee || 0;
+    const mode = g.feeMode || 'add';
+    if(g.type === 'cash-out'){
+      cash -= (mode==='add') ? g.amount : (g.amount - fee);
+    } else {
+      cash += (mode==='add') ? (g.amount + fee) : g.amount;
+    }
+  }
+  return cash;
+}
+// E-Load balance: prepaid load credit bought in bulk from the network/supplier, sold
+// off in pieces to customers. Balance only moves by the load amount sent — the fee is
+// separate cash the customer pays on top, pure profit, doesn't touch the balance.
+function computeEloadBalance(){
+  let balance = state.config.eloadBalanceStart || 0;
+  for(const l of state.eload) balance -= l.amount;
+  return balance;
 }
 
 function parseBulkLines(raw){
@@ -171,7 +196,7 @@ function mergeBulkIntoInventory(raw, inventory){
 }
 
 let state = {
-  config: {name:'Tindahan', ownerPin:'', gcashFloatStart:0},
+  config: {name:'Tindahan', ownerPin:'', gcashFloatStart:0, cashOnHandStart:0, eloadBalanceStart:0},
   inventory: [],
   sales: [],
   receiptsIndex: [],
@@ -182,6 +207,8 @@ let state = {
   vouchers: [],     // [{id,name,cost,price}]  -- voucher TYPES only; stock comes from voucherCodes
   voucherCodes: [], // [{id,typeId,code,status:'unused'|'used',expiryDate,soldTs}]
   stockAdjustments: [], // [{id,itemId,itemName,oldQty,newQty,reason,changedBy,date}] -- audit trail for manual qty corrections
+  eload: [], // [{id,date,provider,loadType:'Regular'|'Promo',amount,fee,remarks,addedBy}]
+  remittances: [], // [{id,periodStart,periodEnd,expectedCash,actualRemitted,remarks,recordedBy,date}]
   cart: [],
   tab: 'dashboard',
   _invSelected: new Set(),
@@ -318,8 +345,8 @@ async function deviceGet(key, fallback){ return storageGet('device-'+key, fallba
 async function deviceSet(key, value){ return storageSet('device-'+key, value); }
 
 async function loadAll(){
-  const [config, inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes, stockAdjustments] = await Promise.all([
-    storageGet('store-config', {name:'Tindahan', ownerPin:'', gcashFloatStart:0}),
+  const [config, inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes, stockAdjustments, eload, remittances] = await Promise.all([
+    storageGet('store-config', {name:'Tindahan', ownerPin:'', gcashFloatStart:0, cashOnHandStart:0, eloadBalanceStart:0}),
     storageGet('inventory', []),
     storageGet('sales', []),
     storageGet('receipts-index', []),
@@ -330,8 +357,10 @@ async function loadAll(){
     storageGet('vouchers', []),
     storageGet('voucher-codes', []),
     storageGet('stock-adjustments', []),
+    storageGet('eload', []),
+    storageGet('remittances', []),
   ]);
-  state.config = config || {name:'Tindahan', ownerPin:'', gcashFloatStart:0};
+  state.config = config || {name:'Tindahan', ownerPin:'', gcashFloatStart:0, cashOnHandStart:0, eloadBalanceStart:0};
   state.inventory = inventory;
   state.sales = sales;
   state.receiptsIndex = receiptsIndex;
@@ -341,6 +370,8 @@ async function loadAll(){
   state.vouchers = vouchers;
   state.voucherCodes = voucherCodes;
   state.stockAdjustments = stockAdjustments;
+  state.eload = eload;
+  state.remittances = remittances;
   if(categories && categories.length){
     state.categories = categories;
   } else {
@@ -396,7 +427,7 @@ async function backgroundSync(){
   const typing = document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
   if(modalOpen || typing) return;
   try{
-    const [inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes, stockAdjustments, config] = await Promise.all([
+    const [inventory, sales, receiptsIndex, categories, expenses, utang, gcash, vouchers, voucherCodes, stockAdjustments, eload, remittances, config] = await Promise.all([
       storageGet('inventory', state.inventory),
       storageGet('sales', state.sales),
       storageGet('receipts-index', state.receiptsIndex),
@@ -407,12 +438,15 @@ async function backgroundSync(){
       storageGet('vouchers', state.vouchers),
       storageGet('voucher-codes', state.voucherCodes),
       storageGet('stock-adjustments', state.stockAdjustments),
+      storageGet('eload', state.eload),
+      storageGet('remittances', state.remittances),
       storageGet('store-config', state.config),
     ]);
     state.inventory=inventory; state.sales=sales; state.receiptsIndex=receiptsIndex;
     state.categories=categories; state.expenses=expenses; state.utang=utang;
     state.gcash=gcash; state.vouchers=vouchers; state.voucherCodes=voucherCodes;
-    state.stockAdjustments=stockAdjustments; state.config=config;
+    state.stockAdjustments=stockAdjustments; state.eload=eload; state.remittances=remittances;
+    state.config=config;
     state.lastSync = new Date();
     render();
   }catch(e){ /* stay silent — next tick will retry */ }
@@ -636,9 +670,14 @@ function viewDashboard(){
   const invValue = state.inventory.reduce((a,i)=>a+i.cost*i.qty,0);
   const recent = [...state.sales].sort((a,b)=>b.ts.localeCompare(a.ts)).slice(0,6);
 
-  const gcashFloat = computeGcashFloat();
+  const gcashWallet = computeGcashWallet();
+  const cashOnHand = computeCashOnHand();
   const gcashFeesPeriod = state.gcash.filter(g=> inDateRange(g.date, cutoff)).reduce((a,g)=>a+(g.fee||0),0);
   const gcashFeesAll = state.gcash.reduce((a,g)=>a+(g.fee||0),0);
+
+  const eloadBalance = computeEloadBalance();
+  const eloadFeesPeriod = state.eload.filter(l=> inDateRange(l.date, cutoff)).reduce((a,l)=>a+(l.fee||0),0);
+  const eloadFeesAll = state.eload.reduce((a,l)=>a+(l.fee||0),0);
 
   const utangTotal = state.utang.reduce((a,c)=>a+c.balance,0);
   const utangOverLimit = state.utang.filter(c=>c.balance>0).length;
@@ -651,7 +690,7 @@ function viewDashboard(){
   const vProfitAll = state.sales.filter(s=>s.isVoucher).reduce((a,s)=>a+(s.price-s.cost)*s.qty,0);
 
   const expensesPeriod = state.expenses.filter(e=> inDateRange(e.date, cutoff)).reduce((a,e)=>a+e.amount,0);
-  const netPeriod = profit + gcashFeesPeriod - expensesPeriod;
+  const netPeriod = profit + gcashFeesPeriod + eloadFeesPeriod - expensesPeriod;
   const periodLabel = dateRangeLabel(dashRange, state._dashCustomFrom, state._dashCustomTo);
 
   return `
@@ -679,7 +718,7 @@ function viewDashboard(){
       <div class="stat" style="--accent:var(--red)"><div class="label">Transactions</div><div class="value mono">${periodSales.length}</div></div>
     </div>
     <div class="stat-row" style="margin-top:10px;">
-      <div class="stat" style="--accent:var(--green)"><div class="label">GCash fees</div><div class="value mono">${peso(gcashFeesPeriod)}</div></div>
+      <div class="stat" style="--accent:var(--green)"><div class="label">GCash + Load fees</div><div class="value mono">${peso(gcashFeesPeriod+eloadFeesPeriod)}</div></div>
       <div class="stat" style="--accent:var(--red)"><div class="label">Expenses</div><div class="value mono">${peso(expensesPeriod)}</div></div>
       <div class="stat" style="--accent:var(--yellow)"><div class="label">Net</div><div class="value mono" style="color:${netPeriod<0?'var(--red)':'inherit'}">${peso(netPeriod)}</div></div>
     </div>
@@ -696,13 +735,25 @@ function viewDashboard(){
   </div>
 
   <div class="card">
-    <h2>💳 GCash Float & Profit</h2>
+    <h2>💳 GCash</h2>
     <div class="stat-row">
-      <div class="stat" style="--accent:var(--green)"><div class="label">Current float</div><div class="value mono" style="color:${gcashFloat<0?'var(--red)':'inherit'}">${peso(gcashFloat)}</div></div>
+      <div class="stat" style="--accent:${gcashWallet<0?'var(--red)':'var(--green)'}"><div class="label">GCash Wallet</div><div class="value mono">${peso(gcashWallet)}</div></div>
+      <div class="stat" style="--accent:${cashOnHand<0?'var(--red)':'var(--yellow)'}"><div class="label">Cash on Hand</div><div class="value mono">${peso(cashOnHand)}</div></div>
+    </div>
+    <div class="stat-row" style="margin-top:10px;">
       <div class="stat"><div class="label">Fees (${esc(periodLabel)})</div><div class="value mono">${peso(gcashFeesPeriod)}</div></div>
       <div class="stat" style="--accent:var(--yellow)"><div class="label">Fees all-time (profit)</div><div class="value mono">${peso(gcashFeesAll)}</div></div>
     </div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">Manage cash-in / cash-out in the <strong>Log</strong> tab.</p>
+  </div>
+
+  <div class="card">
+    <h2>📱 Load</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:${eloadBalance<0?'var(--red)':'var(--green)'}"><div class="label">E-Load balance</div><div class="value mono">${peso(eloadBalance)}</div></div>
+      <div class="stat"><div class="label">Fees (${esc(periodLabel)})</div><div class="value mono">${peso(eloadFeesPeriod)}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Fees all-time</div><div class="value mono">${peso(eloadFeesAll)}</div></div>
+    </div>
   </div>
 
   <div class="card">
@@ -759,9 +810,14 @@ function viewEmployeeDashboard(){
   const revenue = todaySales.reduce((a,s)=>a+s.total,0);
   const lowStock = state.inventory.filter(i=>i.reorder>0 && i.qty<=i.reorder);
 
-  const gcashFloat = computeGcashFloat();
+  const gcashWallet = computeGcashWallet();
+  const cashOnHand = computeCashOnHand();
   const gcashFeesToday = state.gcash.filter(g=>g.date.slice(0,10)===today).reduce((a,g)=>a+(g.fee||0),0);
   const gcashFeesAll = state.gcash.reduce((a,g)=>a+(g.fee||0),0);
+
+  const eloadBalance = computeEloadBalance();
+  const eloadFeesToday = state.eload.filter(l=>l.date.slice(0,10)===today).reduce((a,l)=>a+(l.fee||0),0);
+  const eloadFeesAll = state.eload.reduce((a,l)=>a+(l.fee||0),0);
 
   const utangTotal = state.utang.reduce((a,c)=>a+c.balance,0);
 
@@ -802,11 +858,23 @@ function viewEmployeeDashboard(){
   </div>
 
   <div class="card">
-    <h2>💳 GCash Float & Profit</h2>
+    <h2>💳 GCash</h2>
     <div class="stat-row">
-      <div class="stat" style="--accent:var(--green)"><div class="label">Current float</div><div class="value mono" style="color:${gcashFloat<0?'var(--red)':'inherit'}">${peso(gcashFloat)}</div></div>
+      <div class="stat" style="--accent:${gcashWallet<0?'var(--red)':'var(--green)'}"><div class="label">GCash Wallet</div><div class="value mono">${peso(gcashWallet)}</div></div>
+      <div class="stat" style="--accent:${cashOnHand<0?'var(--red)':'var(--yellow)'}"><div class="label">Cash on Hand</div><div class="value mono">${peso(cashOnHand)}</div></div>
+    </div>
+    <div class="stat-row" style="margin-top:10px;">
       <div class="stat"><div class="label">Fees today</div><div class="value mono">${peso(gcashFeesToday)}</div></div>
       <div class="stat" style="--accent:var(--yellow)"><div class="label">Fees all-time</div><div class="value mono">${peso(gcashFeesAll)}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📱 Load</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:${eloadBalance<0?'var(--red)':'var(--green)'}"><div class="label">E-Load balance</div><div class="value mono">${peso(eloadBalance)}</div></div>
+      <div class="stat"><div class="label">Fees today</div><div class="value mono">${peso(eloadFeesToday)}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Fees all-time</div><div class="value mono">${peso(eloadFeesAll)}</div></div>
     </div>
   </div>
 
@@ -1298,12 +1366,16 @@ function viewLog(){
       <button data-seg="utang" class="${seg==='utang'?'active':''}">🤝 Utang</button>
       <button data-seg="gastos" class="${seg==='gastos'?'active':''}">💸 Gastos</button>
       <button data-seg="gcash" class="${seg==='gcash'?'active':''}">💳 GCash</button>
+      <button data-seg="load" class="${seg==='load'?'active':''}">📱 Load</button>
+      ${isOwner? `<button data-seg="remittance" class="${seg==='remittance'?'active':''}">📥 Remittance</button>` : ''}
       ${isOwner? `<button data-seg="stockadj" class="${seg==='stockadj'?'active':''}">📐 Stock Corrections</button>` : ''}
     </div>
   </div>
   ${seg==='transactions'? viewTransactionsSection()
     : seg==='utang'? viewUtangSection(isOwner)
     : seg==='gastos'? viewGastosSection(isOwner)
+    : seg==='load'? viewLoadSection(isOwner)
+    : seg==='remittance' && isOwner? viewRemittanceSection()
     : seg==='stockadj' && isOwner? viewStockAdjustmentsSection()
     : viewGcashSection(isOwner)}
   `;
@@ -1461,19 +1533,27 @@ function viewGastosSection(isOwner){
 }
 
 function viewGcashSection(isOwner){
-  const float = computeGcashFloat();
+  const wallet = computeGcashWallet();
+  const cashOnHand = computeCashOnHand();
   const recent = [...state.gcash].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
   return `
   <div class="card">
-    <h2>💳 GCash Float</h2>
+    <h2>💳 GCash</h2>
     <div class="stat-row">
-      <div class="stat" style="--accent:${float<0?'var(--red)':'var(--green)'}"><div class="label">Current float</div><div class="value mono">${peso(float)}</div></div>
+      <div class="stat" style="--accent:${wallet<0?'var(--red)':'var(--green)'}"><div class="label">GCash Wallet</div><div class="value mono">${peso(wallet)}</div></div>
+      <div class="stat" style="--accent:${cashOnHand<0?'var(--red)':'var(--yellow)'}"><div class="label">Cash on Hand</div><div class="value mono">${peso(cashOnHand)}</div></div>
     </div>
     ${isOwner? `
-    <div class="field" style="margin-top:10px;"><label>Set starting float (adjust if it drifts from your actual balance)</label>
-      <input id="gcashFloatStart" type="number" step="0.01" value="${state.config.gcashFloatStart||0}">
-    </div>` : ''}
-    <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Cash In always sends float down, Cash Out always brings it up — but how much depends on who pays the fee. Pick that per transaction below.</p>
+    <div class="grid2" style="margin-top:10px;">
+      <div class="field"><label>Set starting Wallet balance</label>
+        <input id="gcashFloatStart" type="number" step="0.01" value="${state.config.gcashFloatStart||0}">
+      </div>
+      <div class="field"><label>Set starting Cash on Hand</label>
+        <input id="cashOnHandStart" type="number" step="0.01" value="${state.config.cashOnHandStart||0}">
+      </div>
+    </div>
+    <p style="font-size:11px;color:var(--ink-soft);margin-top:4px;">Adjust these if either number drifts from what's actually in the GCash app or in the drawer.</p>` : ''}
+    <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;"><strong>GCash Wallet</strong> is your e-money balance — Cash In sends it down, Cash Out brings it up. <strong>Cash on Hand</strong> is the physical peso the employee is holding from these transactions — it moves the opposite way. How much of each depends on who pays the fee, picked per transaction below.</p>
   </div>
   <div class="card">
     <h2>Record Cash-In / Cash-Out</h2>
@@ -1517,6 +1597,147 @@ function viewGcashSection(isOwner){
     </div>
   </div>`;
 }
+
+const LOAD_PROVIDERS = ['Globe','TM','Smart','TNT','DITO','Sun','Others'];
+
+function viewLoadSection(isOwner){
+  const balance = computeEloadBalance();
+  const recent = [...state.eload].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
+  return `
+  <div class="card">
+    <h2>📱 E-Load Balance</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:${balance<0?'var(--red)':'var(--green)'}"><div class="label">Balance</div><div class="value mono">${peso(balance)}</div></div>
+    </div>
+    ${isOwner? `
+    <div class="field" style="margin-top:10px;"><label>Set starting balance (adjust if it drifts from your actual load balance)</label>
+      <input id="eloadBalanceStart" type="number" step="0.01" value="${state.config.eloadBalanceStart||0}">
+    </div>` : ''}
+    <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Sending load lowers your balance by the load amount. The fee is separate cash the customer pays on top — pure profit, doesn't touch the balance.</p>
+  </div>
+  <div class="card">
+    <h2>Send Load</h2>
+    <form id="eloadForm">
+      <div class="grid2">
+        <div class="field"><label>Network</label>
+          <select name="provider">${LOAD_PROVIDERS.map(p=>`<option>${p}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Load Type</label>
+          <div class="segmented" id="eloadTypeSeg">
+            <button type="button" data-ltype="Regular" class="active">Regular</button>
+            <button type="button" data-ltype="Promo">Promo</button>
+          </div>
+        </div>
+      </div>
+      <input type="hidden" name="loadType" id="eloadTypeInput" value="Regular">
+      <div class="grid2" style="margin-top:10px;">
+        <div class="field"><label>Load amount (₱)</label><input name="amount" type="number" step="0.01" required></div>
+        <div class="field"><label>Fee (₱)</label><input name="fee" type="number" step="0.01" value="0"></div>
+      </div>
+      <div class="field"><label>Remarks</label><input name="remarks" placeholder="e.g. customer number, promo name"></div>
+      <button type="submit" class="btn-primary btn-block">Save Load Transaction</button>
+    </form>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;">Recent Load Transactions</h2>
+      <button id="exportLoadExcelBtn" class="btn-secondary" style="padding:7px 12px;font-size:12.5px;">⬇ Export Excel</button>
+    </div>
+    <div style="margin-top:10px;">
+    ${recent.length? recent.map(l=>`
+      <div class="ledger-row">
+        <div><strong>${esc(l.provider)} ${esc(l.loadType)}</strong>
+          <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">${new Date(l.date).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} ${l.remarks?'· '+esc(l.remarks):''}${l.fee?` · fee ${peso(l.fee)}`:''}</div>
+        </div>
+        <span class="mono" style="font-weight:800;">${peso(l.amount)}</span>
+      </div>`).join('') : `<div class="empty"><span class="big">📱</span>No load transactions yet.</div>`}
+    </div>
+  </div>`;
+}
+
+function mondayOfWeek(d){
+  const date = new Date(d);
+  const day = date.getDay(); // 0=Sun..6=Sat
+  const diff = day===0 ? -6 : 1-day; // shift to Monday
+  date.setDate(date.getDate()+diff);
+  date.setHours(0,0,0,0);
+  return date;
+}
+
+function computeExpectedCash(periodStart, periodEnd){
+  const start = new Date(periodStart+'T00:00:00');
+  const end = new Date(periodEnd+'T23:59:59');
+  const inRange = (ts)=>{ const t=new Date(ts); return t>=start && t<=end; };
+
+  const cashSales = state.sales.filter(s=> inRange(s.ts) && (s.payment||'Cash')==='Cash').reduce((a,s)=>a+s.total,0);
+  const gcashCashDelta = state.gcash.filter(g=> inRange(g.date)).reduce((a,g)=>{
+    const fee = g.fee||0, mode = g.feeMode||'add';
+    if(g.type==='cash-out') return a - ((mode==='add') ? g.amount : (g.amount-fee));
+    return a + ((mode==='add') ? (g.amount+fee) : g.amount);
+  }, 0);
+  const loadCash = state.eload.filter(l=> inRange(l.date)).reduce((a,l)=>a+l.amount+l.fee, 0);
+  const utangPayments = state.utang.reduce((a,c)=>a + c.history.filter(h=>h.type==='payment' && inRange(h.date)).reduce((s,h)=>s+h.amount,0), 0);
+  const expensesOut = state.expenses.filter(e=> inRange(e.date)).reduce((a,e)=>a+e.amount,0);
+
+  return {
+    cashSales, gcashCashDelta, loadCash, utangPayments, expensesOut,
+    total: cashSales + gcashCashDelta + loadCash + utangPayments - expensesOut,
+  };
+}
+
+function viewRemittanceSection(){
+  const monday = mondayOfWeek(new Date());
+  const saturday = new Date(monday); saturday.setDate(saturday.getDate()+5);
+  const defaultStart = state._remitStart || monday.toISOString().slice(0,10);
+  const defaultEnd = state._remitEnd || saturday.toISOString().slice(0,10);
+  const breakdown = computeExpectedCash(defaultStart, defaultEnd);
+  const recent = [...state.remittances].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,15);
+
+  return `
+  <div class="card">
+    <h2>📥 Weekly Cash Remittance</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">Pick the week, and this adds up everything that should be cash in hand — sales, GCash, Load, utang payments, minus expenses paid from the till. Compare it to what actually gets remitted.</p>
+    <div class="grid2">
+      <div class="field"><label>Period start</label><input type="date" id="remitStart" value="${defaultStart}" max="${todayStr()}"></div>
+      <div class="field"><label>Period end</label><input type="date" id="remitEnd" value="${defaultEnd}" max="${todayStr()}"></div>
+    </div>
+    <button id="remitRecalcBtn" class="btn-secondary btn-block">Recalculate</button>
+  </div>
+  <div class="card">
+    <h2>Expected Cash for This Period</h2>
+    <div class="ledger-row"><span>Cash sales (Bentahan)</span><span class="mono">${peso(breakdown.cashSales)}</span></div>
+    <div class="ledger-row"><span>GCash cash flow</span><span class="mono">${peso(breakdown.gcashCashDelta)}</span></div>
+    <div class="ledger-row"><span>Load (amount + fee, cash collected)</span><span class="mono">${peso(breakdown.loadCash)}</span></div>
+    <div class="ledger-row"><span>Utang payments received</span><span class="mono">${peso(breakdown.utangPayments)}</span></div>
+    <div class="ledger-row"><span>Expenses paid from till</span><span class="mono" style="color:var(--red);">−${peso(breakdown.expensesOut)}</span></div>
+    <div class="ledger-row" style="border-top:2px solid var(--line);margin-top:6px;padding-top:8px;"><strong>Expected Total</strong><span class="mono" style="font-weight:800;font-size:16px;">${peso(breakdown.total)}</span></div>
+  </div>
+  <div class="card">
+    <h2>Record Actual Remittance</h2>
+    <form id="remittanceForm">
+      <input type="hidden" id="remitExpectedInput" value="${breakdown.total}">
+      <div class="field"><label>Amount actually remitted (₱)</label><input name="actualRemitted" type="number" step="0.01" required placeholder="${breakdown.total.toFixed(2)}"></div>
+      <div class="field"><label>Remarks</label><input name="remarks" placeholder="optional — note any known discrepancy"></div>
+      <button type="submit" class="btn-primary btn-block">Save Remittance Record</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Past Remittances</h2>
+    ${recent.length? recent.map(r=>{
+      const diff = r.actualRemitted - r.expectedCash;
+      return `
+      <div class="ledger-row" style="align-items:flex-start;">
+        <div>
+          <strong>${r.periodStart} → ${r.periodEnd}</strong>
+          <div class="meta" style="font-size:11.5px;color:var(--ink-soft);">Expected ${peso(r.expectedCash)} · Remitted ${peso(r.actualRemitted)}${r.remarks?' · '+esc(r.remarks):''}</div>
+        </div>
+        <span class="pill ${Math.abs(diff)<1?'ok':'low'}" style="white-space:nowrap;">${diff===0?'Exact match':(diff>0?'+':'')+peso(diff)}</span>
+      </div>`;
+    }).join('') : `<div class="empty"><span class="big">📥</span>No remittances recorded yet.</div>`}
+  </div>
+  `;
+}
+
 
 function bindLogEvents(){
   document.getElementById('logSeg')?.addEventListener('click', e=>{
@@ -1778,7 +1999,13 @@ function bindLogEvents(){
   document.getElementById('gcashFloatStart')?.addEventListener('change', async e=>{
     state.config.gcashFloatStart = parseFloat(e.target.value)||0;
     await storageSet('store-config', state.config);
-    showToast('✅ Float updated');
+    showToast('✅ Wallet starting balance updated');
+    render();
+  });
+  document.getElementById('cashOnHandStart')?.addEventListener('change', async e=>{
+    state.config.cashOnHandStart = parseFloat(e.target.value)||0;
+    await storageSet('store-config', state.config);
+    showToast('✅ Cash on Hand starting balance updated');
     render();
   });
   document.getElementById('exportGcashExcelBtn')?.addEventListener('click', ()=>{
@@ -1792,6 +2019,66 @@ function bindLogEvents(){
       'Recorded By': g.addedBy||'',
     }));
     exportRowsToExcel(rows, `gcash-transactions-${todayStr()}`, 'GCash');
+  });
+
+  // ---- Load ----
+  document.getElementById('eloadTypeSeg')?.addEventListener('click', e=>{
+    const b = e.target.closest('button[data-ltype]');
+    if(!b) return;
+    document.querySelectorAll('#eloadTypeSeg button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('eloadTypeInput').value = b.dataset.ltype;
+  });
+  document.getElementById('eloadForm')?.addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const amount = parseFloat(f.get('amount'))||0;
+    if(amount<=0) return;
+    state.eload.push({
+      id:uid(), date:new Date().toISOString(), provider:f.get('provider'),
+      loadType:f.get('loadType')||'Regular', amount, fee:parseFloat(f.get('fee'))||0,
+      remarks:(f.get('remarks')||'').trim(), addedBy:state.role,
+    });
+    await storageSet('eload', state.eload);
+    showToast('✅ Load transaction saved');
+    render();
+  });
+  document.getElementById('eloadBalanceStart')?.addEventListener('change', async e=>{
+    state.config.eloadBalanceStart = parseFloat(e.target.value)||0;
+    await storageSet('store-config', state.config);
+    showToast('✅ Load balance updated');
+    render();
+  });
+  document.getElementById('exportLoadExcelBtn')?.addEventListener('click', ()=>{
+    const rows = [...state.eload].sort((a,b)=>b.date.localeCompare(a.date)).map(l=>({
+      Date: new Date(l.date).toLocaleString('en-PH'),
+      Network: l.provider, 'Load Type': l.loadType, Amount: l.amount, Fee: l.fee||0,
+      Remarks: l.remarks||'', 'Recorded By': l.addedBy||'',
+    }));
+    exportRowsToExcel(rows, `load-transactions-${todayStr()}`, 'Load');
+  });
+
+  // ---- Remittance (owner only, but bindings are harmless no-ops if elements aren't rendered) ----
+  document.getElementById('remitRecalcBtn')?.addEventListener('click', ()=>{
+    state._remitStart = document.getElementById('remitStart').value || state._remitStart;
+    state._remitEnd = document.getElementById('remitEnd').value || state._remitEnd;
+    render();
+  });
+  document.getElementById('remittanceForm')?.addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const actualRemitted = parseFloat(f.get('actualRemitted'));
+    if(isNaN(actualRemitted)) return;
+    const expectedCash = parseFloat(document.getElementById('remitExpectedInput').value)||0;
+    const periodStart = document.getElementById('remitStart').value;
+    const periodEnd = document.getElementById('remitEnd').value;
+    state.remittances.push({
+      id:uid(), periodStart, periodEnd, expectedCash, actualRemitted,
+      remarks:(f.get('remarks')||'').trim(), recordedBy:state.role, date:new Date().toISOString(),
+    });
+    await storageSet('remittances', state.remittances);
+    showToast('✅ Remittance recorded');
+    render();
   });
 }
 
@@ -2663,9 +2950,22 @@ function exportFullReportExcel(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(expRows.length?expRows:[{Note:'No expenses yet'}]), 'Expenses');
 
   const gcashRows = [...state.gcash].sort((a,b)=>b.date.localeCompare(a.date)).map(g=>({
-    Date: new Date(g.date).toLocaleString('en-PH'), Type: g.type, Amount: g.amount, Fee: g.fee||0, Remarks: g.remarks||'',
+    Date: new Date(g.date).toLocaleString('en-PH'), Type: g.type, Amount: g.amount, Fee: g.fee||0,
+    'Fee Handling': g.feeMode==='deduct'?'Deducted':'Paid separately', Remarks: g.remarks||'',
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gcashRows.length?gcashRows:[{Note:'No GCash transactions yet'}]), 'GCash');
+
+  const loadRows = [...state.eload].sort((a,b)=>b.date.localeCompare(a.date)).map(l=>({
+    Date: new Date(l.date).toLocaleString('en-PH'), Network: l.provider, 'Load Type': l.loadType,
+    Amount: l.amount, Fee: l.fee||0, Remarks: l.remarks||'',
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(loadRows.length?loadRows:[{Note:'No load transactions yet'}]), 'Load');
+
+  const remitRows = [...state.remittances].sort((a,b)=>b.date.localeCompare(a.date)).map(r=>({
+    'Period Start': r.periodStart, 'Period End': r.periodEnd, Expected: r.expectedCash,
+    Remitted: r.actualRemitted, Difference: r.actualRemitted-r.expectedCash, Remarks: r.remarks||'',
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(remitRows.length?remitRows:[{Note:'No remittances yet'}]), 'Remittances');
 
   const utangRows = state.utang.map(c=>({ Name: c.name, Contact: c.contact||'', Balance: c.balance }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(utangRows.length?utangRows:[{Note:'No utang customers yet'}]), 'Utang');
@@ -2691,6 +2991,8 @@ function exportBackup(){
     expenses: state.expenses,
     utang: state.utang,
     gcash: state.gcash,
+    eload: state.eload,
+    remittances: state.remittances,
     vouchers: state.vouchers,
     voucherCodes: state.voucherCodes,
   };
