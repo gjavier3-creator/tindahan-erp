@@ -396,7 +396,7 @@ async function backgroundSync(){
 /* ---------------- Rendering shell ---------------- */
 function visibleTabs(){
   if(state.role==='owner') return TABS;
-  return TABS.filter(t=> ['inventory','sell','vouchers','log'].includes(t.id));
+  return TABS.filter(t=> ['dashboard','inventory','sell','vouchers','log'].includes(t.id));
 }
 function renderNav(){
   const nav = document.getElementById('tabbar');
@@ -599,6 +599,8 @@ function bindGateEvents(){
 
 /* ---------------- Dashboard ---------------- */
 function viewDashboard(){
+  if(state.role!=='owner') return viewEmployeeDashboard();
+
   const dashRange = state._dashRange || 'today';
   const cutoff = getDateCutoff(dashRange, state._dashCustomFrom, state._dashCustomTo);
   const periodSales = state.sales.filter(s=> inDateRange(s.ts, cutoff));
@@ -720,6 +722,105 @@ function viewDashboard(){
         <div class="mono" style="font-weight:800">${peso(s.total)}</div>
       </div>`).join('') : `<div class="empty"><span class="big">🧾</span>Wala pang benta today.<br>Go to <strong>Bentahan</strong> to log a sale.</div>`}
   </div>
+  `;
+}
+
+// Employee's Home tab — deliberately scoped to what she asked to be able to see at a
+// glance: today's sales, low stock, GCash float & profit, total utang owed, and a
+// per-denomination voucher breakdown (unused/used, count and ₱ value each).
+function viewEmployeeDashboard(){
+  const today = todayStr();
+  const todaySales = state.sales.filter(s=>s.ts.slice(0,10)===today);
+  const revenue = todaySales.reduce((a,s)=>a+s.total,0);
+  const lowStock = state.inventory.filter(i=>i.reorder>0 && i.qty<=i.reorder);
+
+  const gcashFloat = computeGcashFloat();
+  const gcashFeesToday = state.gcash.filter(g=>g.date.slice(0,10)===today).reduce((a,g)=>a+(g.fee||0),0);
+  const gcashFeesAll = state.gcash.reduce((a,g)=>a+(g.fee||0),0);
+
+  const utangTotal = state.utang.reduce((a,c)=>a+c.balance,0);
+
+  const voucherRows = [...state.vouchers].sort((a,b)=>a.price-b.price).map(v=>{
+    const codes = state.voucherCodes.filter(c=>c.typeId===v.id);
+    const unused = codes.filter(c=>voucherCodeStatus(c)==='unused').length;
+    const used = codes.filter(c=>voucherCodeStatus(c)==='used').length;
+    return {name: v.name, price: v.price, unused, used, unusedValue: unused*v.price, usedValue: used*v.price};
+  });
+  const totalUnusedValue = voucherRows.reduce((a,r)=>a+r.unusedValue,0);
+  const totalUsedValue = voucherRows.reduce((a,r)=>a+r.usedValue,0);
+  const totalUnusedCount = voucherRows.reduce((a,r)=>a+r.unused,0);
+  const totalUsedCount = voucherRows.reduce((a,r)=>a+r.used,0);
+
+  return `
+  ${state.showInstallHint ? `
+  <div class="card" id="installHintCard" style="border-color:var(--yellow);background:#FFFBF0;">
+    <h2 style="color:var(--ink)">📲 Install as an app</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">Put this on your home screen so it opens like a real app — full screen, no browser bar.</p>
+    <p style="font-size:12.5px;margin:2px 0;"><strong>iPhone:</strong> tap Share → Add to Home Screen.</p>
+    <p style="font-size:12.5px;margin:2px 0;"><strong>Android:</strong> tap ⋮ menu → Install app / Add to Home screen.</p>
+    <p style="font-size:12.5px;margin:2px 0 10px;"><strong>Laptop:</strong> click the install icon (⊕) in the address bar.</p>
+    <button id="dismissInstallHint" class="btn-secondary btn-block">Got it</button>
+  </div>` : ''}
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;">Ngayong Araw</h2>
+      <button id="syncNowBtn" class="icon-btn" title="Refresh now" style="color:var(--green);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg>
+      </button>
+    </div>
+    <div class="stat-row" style="margin-top:14px;">
+      <div class="stat" style="--accent:var(--green)"><div class="label">Total Sales Today</div><div class="value mono">${peso(revenue)}</div></div>
+      <div class="stat" style="--accent:var(--red)"><div class="label">Transactions</div><div class="value mono">${todaySales.length}</div></div>
+    </div>
+    <div style="font-size:11px;color:var(--ink-soft);margin-top:10px;">Synced ${state.lastSync ? state.lastSync.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'}) : '—'} · updates automatically every 30s</div>
+  </div>
+
+  <div class="card">
+    <h2>💳 GCash Float & Profit</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:var(--green)"><div class="label">Current float</div><div class="value mono" style="color:${gcashFloat<0?'var(--red)':'inherit'}">${peso(gcashFloat)}</div></div>
+      <div class="stat"><div class="label">Fees today</div><div class="value mono">${peso(gcashFeesToday)}</div></div>
+      <div class="stat" style="--accent:var(--yellow)"><div class="label">Fees all-time</div><div class="value mono">${peso(gcashFeesAll)}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🤝 Utang (Customer Credit)</h2>
+    <div class="stat-row">
+      <div class="stat" style="--accent:var(--red)"><div class="label">Total outstanding</div><div class="value mono">${peso(utangTotal)}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📶 WiFi Vouchers</h2>
+    ${voucherRows.length? voucherRows.map(r=>`
+      <div class="ledger-row">
+        <div><strong>${esc(r.name)}</strong> <span class="meta" style="color:var(--ink-soft);font-size:12px">₱${r.price}</span></div>
+        <div style="text-align:right;">
+          <div class="mono" style="font-size:12.5px;"><span style="color:var(--green);font-weight:700;">${r.unused}</span> unused · ${peso(r.unusedValue)}</div>
+          <div class="mono" style="font-size:11.5px;color:var(--ink-soft);">${r.used} used · ${peso(r.usedValue)}</div>
+        </div>
+      </div>`).join('') : `<div class="empty"><span class="big">📶</span>No voucher types yet.</div>`}
+    ${voucherRows.length? `
+    <div class="ledger-row" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px;">
+      <strong>Total</strong>
+      <div style="text-align:right;">
+        <div class="mono" style="font-size:12.5px;font-weight:800;color:var(--green);">${totalUnusedCount} unused · ${peso(totalUnusedValue)}</div>
+        <div class="mono" style="font-size:11.5px;color:var(--ink-soft);">${totalUsedCount} used · ${peso(totalUsedValue)}</div>
+      </div>
+    </div>` : ''}
+  </div>
+
+  ${lowStock.length? `
+  <div class="card">
+    <h2>⚠️ Paubos na (Low Stock)</h2>
+    ${lowStock.map(i=>`
+      <div class="ledger-row">
+        <div><strong>${esc(i.name)}</strong><div class="meta" style="font-size:12px;color:var(--ink-soft)">${i.qty} ${esc(i.unit)} left · reorder at ${i.reorder}</div></div>
+        <span class="pill low">Restock</span>
+      </div>`).join('')}
+  </div>` : `<div class="card"><div class="empty">✅ No low stock items right now.</div></div>`}
   `;
 }
 
