@@ -1065,7 +1065,7 @@ function viewSell(){
             <span class="p mono">${peso(i.price)}</span>
             <span class="s">${remaining} ${esc(i.unit)} left${inCart? ` <span style="color:var(--yellow);font-weight:700;">(${inCart} in cart)</span>` : ''}</span>
           </button>
-          <button data-qtyeditsell="${i.id}" title="Tap to edit total stock" style="position:absolute;top:4px;right:4px;background:rgba(255,255,255,0.9);border:1px solid var(--line);border-radius:6px;padding:3px 5px;font-size:11px;line-height:1;">✏️</button>
+          ${state.role==='owner'? `<button data-qtyeditsell="${i.id}" title="Tap to edit total stock" style="position:absolute;top:4px;right:4px;background:rgba(255,255,255,0.9);border:1px solid var(--line);border-radius:6px;padding:3px 5px;font-size:11px;line-height:1;">✏️</button>` : ''}
         </div>`;
       }).join('')}
     </div>` : `<div class="empty"><span class="big">🛒</span>No stock to sell yet. Add items in <strong>Stocks</strong> first.</div>`}
